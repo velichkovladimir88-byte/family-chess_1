@@ -1,0 +1,3026 @@
+<!DOCTYPE html>
+<html lang="uk" data-theme="mc">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <script>try{document.documentElement.dataset.theme=localStorage.getItem("chess_theme")||"mc"}catch(e){}</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+    <title>Сімейний шаховий турнір</title>
+    <meta name="theme-color" content="#141713">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <script src="firebase-config.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Базова стилізація, яка працює миттєво навіть без зовнішніх шрифтів */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+            background-color: #141713;
+            color: #f3f4f6;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Стиль імен гравців зверху та знизу дошки (як Vasily Smyslov / Garry Kasparov на зразку) */
+        .player-banner-name {
+            font-family: 'Times New Roman', Georgia, 'Palatino Linotype', serif;
+            font-style: italic;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+        }
+
+        /* Зовнішня оливково-зелена рамка дошки в стилі зразка */
+        .chess-frame {
+            background-color: #739552;
+            padding: 12px;
+            border-left: 3px solid #0d0d0d;
+            border-right: 3px solid #0d0d0d;
+            box-shadow: 0 22px 50px rgba(0, 0, 0, 0.75);
+        }
+
+        .chess-board-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            aspect-ratio: 1 / 1;
+            width: 100%;
+            border: 1px solid #4d6836;
+            user-select: none;
+            touch-action: manipulation;
+        }
+
+        /* Кольори клітинок строго як на доданому зображенні */
+        .sq-light {
+            background-color: #DCE8D0;
+        }
+        .sq-dark {
+            background-color: #739552;
+        }
+
+        .sq-selected {
+            background-color: #f6f669 !important;
+        }
+        .sq-last-move-light {
+            background-color: #e9ed8c !important;
+        }
+        .sq-last-move-dark {
+            background-color: #baca44 !important;
+        }
+        .sq-check {
+            background: radial-gradient(circle, rgba(239, 68, 68, 0.95) 0%, rgba(220, 38, 38, 0.65) 62%, transparent 100%) !important;
+        }
+
+        .legal-dot {
+            position: absolute; top: 50%; left: 50%; width: 32%; height: 32%;
+            transform: translate(-50%, -50%); border-radius: 50%;
+            background-color: rgba(0, 0, 0, 0.32); pointer-events: none; z-index: 2;
+        }
+        .legal-capture {
+            position: absolute; inset: 3%; border-radius: 50%;
+            border: 5px solid rgba(0, 0, 0, 0.34); pointer-events: none; z-index: 2;
+        }
+        .lang-btn { background: #20251e; color: #9ca3af; }
+        .lang-btn.active { background: #739552; color: #fff; }
+
+        .piece-svg {
+            width: 85%;
+            height: 85%;
+            pointer-events: none;
+            filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.28));
+                    }
+
+        
+
+        /* Кастомний скролбар */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1c201b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4b5e3b;
+            border-radius: 3px;
+        }
+
+        /* ===== Підсвітка лише клітинок, куди можна піти ===== */
+        .sq-target::after { content: ''; position: absolute; inset: 0; background: rgba(255, 226, 60, 0.55); pointer-events: none; z-index: 1; }
+        .sq-target.sq-target-cap::after { background: rgba(239, 68, 68, 0.55); }
+
+        /* ===== Мобільна адаптація ===== */
+        html, body { overscroll-behavior-y: contain; -webkit-text-size-adjust: 100%; }
+        body { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); }
+        #app-header { padding-top: max(0.75rem, env(safe-area-inset-top)); }
+        #view-landing { padding-top: max(1.25rem, env(safe-area-inset-top)); }
+        input, select, textarea { font-size: 16px; }
+        .chess-board-grid, .square-cell { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+        #champion-dash { order: -2; }
+        @media (max-width: 1023px) { #active-match-section { order: -1; } }
+        @media (pointer: coarse) {
+            button, select, .lang-btn { min-height: 44px; }
+            input[type=text], input[type=password], input[type=number] { min-height: 44px; }
+        }
+        @media (max-width: 640px) {
+            #board-col, #match-panel { max-width: min(100%, calc(100dvh - 190px)); }
+            #match-panel { max-width: 100%; }
+            .chess-frame { padding: 5px; border-left-width: 2px; border-right-width: 2px; }
+            .player-banner-name { font-size: 1.05rem !important; }
+            #sync-mode-text { display: none; }
+            #view-dashboard { padding: 8px; gap: 12px; }
+        }
+        @media (orientation: landscape) and (max-height: 560px) {
+            #active-match-section { flex-direction: row !important; align-items: flex-start !important; gap: 12px; }
+            #board-col { max-width: calc(100dvh - 40px) !important; flex-shrink: 0; width: calc(100dvh - 40px); }
+            #match-panel { max-width: none !important; flex: 1; }
+            #app-header { padding-top: max(0.4rem, env(safe-area-inset-top)); padding-bottom: 0.4rem; }
+        }
+
+        /* ===== ТЕМА MINECRAFT ===== */
+        html[data-theme="mc"] { --noise: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgc2hhcGUtcmVuZGVyaW5nPSJjcmlzcEVkZ2VzIj48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDYiLz48cmVjdCB4PSIxIiB5PSIwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDYiLz48cmVjdCB4PSIyIiB5PSIwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSIzIiB5PSIwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSI0IiB5PSIwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSI1IiB5PSIwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjYiIHk9IjAiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNiIvPjxyZWN0IHg9IjciIHk9IjAiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4yMiIvPjxyZWN0IHg9IjgiIHk9IjAiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xNCIvPjxyZWN0IHg9IjkiIHk9IjAiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iMTIiIHk9IjAiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4yMiIvPjxyZWN0IHg9IjEzIiB5PSIwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDYiLz48cmVjdCB4PSIxNCIgeT0iMCIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIxNSIgeT0iMCIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSI0IiB5PSIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSI2IiB5PSIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMTQiLz48cmVjdCB4PSIxMyIgeT0iMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIxNCIgeT0iMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjA2Ii8+PHJlY3QgeD0iMSIgeT0iMiIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjIyIi8+PHJlY3QgeD0iMiIgeT0iMiIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSI1IiB5PSIyIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjYiIHk9IjIiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xNiIvPjxyZWN0IHg9IjciIHk9IjIiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xNiIvPjxyZWN0IHg9IjgiIHk9IjIiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xNiIvPjxyZWN0IHg9IjkiIHk9IjIiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xNCIvPjxyZWN0IHg9IjEwIiB5PSIyIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSIxMyIgeT0iMiIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjE0Ii8+PHJlY3QgeD0iMTQiIHk9IjIiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iMCIgeT0iMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjA2Ii8+PHJlY3QgeD0iMiIgeT0iMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjE0Ii8+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjIyIi8+PHJlY3QgeD0iOCIgeT0iMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjE2Ii8+PHJlY3QgeD0iMTAiIHk9IjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iMTEiIHk9IjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xNCIvPjxyZWN0IHg9IjEyIiB5PSIzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjEzIiB5PSIzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMTYiLz48cmVjdCB4PSIxNCIgeT0iMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIxNSIgeT0iMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIwIiB5PSI0IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMTYiLz48cmVjdCB4PSIxIiB5PSI0IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjUiIHk9IjQiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xNiIvPjxyZWN0IHg9IjgiIHk9IjQiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNiIvPjxyZWN0IHg9IjkiIHk9IjQiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iMTAiIHk9IjQiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4yMiIvPjxyZWN0IHg9IjExIiB5PSI0IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMTYiLz48cmVjdCB4PSIxMyIgeT0iNCIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjE2Ii8+PHJlY3QgeD0iMTQiIHk9IjQiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xNiIvPjxyZWN0IHg9IjEiIHk9IjUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNiIvPjxyZWN0IHg9IjYiIHk9IjUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4yMiIvPjxyZWN0IHg9IjgiIHk9IjUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iOSIgeT0iNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIxMSIgeT0iNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIxMyIgeT0iNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjA2Ii8+PHJlY3QgeD0iMTQiIHk9IjUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNiIvPjxyZWN0IHg9IjE1IiB5PSI1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSIwIiB5PSI2IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjMiIHk9IjYiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iNSIgeT0iNiIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjE2Ii8+PHJlY3QgeD0iOCIgeT0iNiIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjA2Ii8+PHJlY3QgeD0iMTEiIHk9IjYiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iMTIiIHk9IjYiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNiIvPjxyZWN0IHg9IjEzIiB5PSI2IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMTYiLz48cmVjdCB4PSIxNSIgeT0iNiIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjE0Ii8+PHJlY3QgeD0iMCIgeT0iNyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIxIiB5PSI3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSIyIiB5PSI3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMTQiLz48cmVjdCB4PSI0IiB5PSI3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSI1IiB5PSI3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSI4IiB5PSI3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMTYiLz48cmVjdCB4PSIxMCIgeT0iNyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjA2Ii8+PHJlY3QgeD0iMTMiIHk9IjciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNiIvPjxyZWN0IHg9IjEiIHk9IjgiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iNCIgeT0iOCIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjIyIi8+PHJlY3QgeD0iOSIgeT0iOCIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjA2Ii8+PHJlY3QgeD0iMTIiIHk9IjgiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xNCIvPjxyZWN0IHg9IjE1IiB5PSI4IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDYiLz48cmVjdCB4PSIwIiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMTYiLz48cmVjdCB4PSIxIiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjUiIHk9IjkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4yMiIvPjxyZWN0IHg9IjYiIHk9IjkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xNCIvPjxyZWN0IHg9IjciIHk9IjkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4yMiIvPjxyZWN0IHg9IjgiIHk9IjkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xNiIvPjxyZWN0IHg9IjExIiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDYiLz48cmVjdCB4PSIxMiIgeT0iOSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjE0Ii8+PHJlY3QgeD0iMTMiIHk9IjkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xNCIvPjxyZWN0IHg9IjE0IiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjAiIHk9IjEwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjEiIHk9IjEwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjIiIHk9IjEwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSI1IiB5PSIxMCIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjIyIi8+PHJlY3QgeD0iOCIgeT0iMTAiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xNCIvPjxyZWN0IHg9IjEwIiB5PSIxMCIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjIyIi8+PHJlY3QgeD0iMTQiIHk9IjEwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDYiLz48cmVjdCB4PSIwIiB5PSIxMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjE2Ii8+PHJlY3QgeD0iMSIgeT0iMTEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4yMiIvPjxyZWN0IHg9IjIiIHk9IjExIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSIzIiB5PSIxMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjE0Ii8+PHJlY3QgeD0iNCIgeT0iMTEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNiIvPjxyZWN0IHg9IjUiIHk9IjExIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMjIiLz48cmVjdCB4PSI2IiB5PSIxMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIxMiIgeT0iMTEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iMTQiIHk9IjExIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMTYiLz48cmVjdCB4PSIyIiB5PSIxMiIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIzIiB5PSIxMiIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjE0Ii8+PHJlY3QgeD0iNCIgeT0iMTIiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iNSIgeT0iMTIiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xNCIvPjxyZWN0IHg9IjEwIiB5PSIxMiIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIxMSIgeT0iMTIiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iMCIgeT0iMTMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xNCIvPjxyZWN0IHg9IjMiIHk9IjEzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMTYiLz48cmVjdCB4PSI0IiB5PSIxMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjE0Ii8+PHJlY3QgeD0iNyIgeT0iMTMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4yMiIvPjxyZWN0IHg9IjEwIiB5PSIxMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjIyIi8+PHJlY3QgeD0iMTIiIHk9IjEzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMTYiLz48cmVjdCB4PSIxMyIgeT0iMTMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iMTQiIHk9IjEzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjE1IiB5PSIxMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIwIiB5PSIxNCIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjA2Ii8+PHJlY3QgeD0iNCIgeT0iMTQiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4yMiIvPjxyZWN0IHg9IjYiIHk9IjE0IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjkiIHk9IjE0IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjEwIiB5PSIxNCIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIxMSIgeT0iMTQiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4yMiIvPjxyZWN0IHg9IjEzIiB5PSIxNCIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjE2Ii8+PHJlY3QgeD0iMTUiIHk9IjE0IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjxyZWN0IHg9IjAiIHk9IjE1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMTYiLz48cmVjdCB4PSIxIiB5PSIxNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjE2Ii8+PHJlY3QgeD0iMiIgeT0iMTUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4yMiIvPjxyZWN0IHg9IjMiIHk9IjE1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMTQiLz48cmVjdCB4PSI0IiB5PSIxNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjE2Ii8+PHJlY3QgeD0iNiIgeT0iMTUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iNyIgeT0iMTUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PHJlY3QgeD0iOSIgeT0iMTUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xNiIvPjxyZWN0IHg9IjEwIiB5PSIxNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwMCIgZmlsbC1vcGFjaXR5PSIwLjEiLz48cmVjdCB4PSIxMSIgeT0iMTUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PC9zdmc+); font-size: 17px; }
+        html[data-theme="mc"] body[class] { font-family: 'VT323', 'Courier New', monospace; background-color: #6b4a2b; background-image: var(--noise); background-size: 64px 64px; image-rendering: pixelated; color: #fff; }
+        html[data-theme="mc"] * { text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55); }
+        html[data-theme="mc"] [class*="rounded"]:not(.rounded-full) { border-radius: 0 !important; }
+        html[data-theme="mc"] [class*="bg-[#1"], html[data-theme="mc"] [class*="bg-[#2"], html[data-theme="mc"] [class*="bg-[#3"] {
+            background-color: #4b4b4b; background-image: var(--noise); background-size: 64px 64px; image-rendering: pixelated;
+            border-color: #151515; box-shadow: inset 3px 3px 0 rgba(255, 255, 255, 0.16), inset -3px -3px 0 rgba(0, 0, 0, 0.4);
+        }
+        html[data-theme="mc"] [class*="border-["] { border-color: #151515; }
+        html[data-theme="mc"] h1[class], html[data-theme="mc"] h2[class], html[data-theme="mc"] h3[class], html[data-theme="mc"] h4[class],
+        html[data-theme="mc"] label, html[data-theme="mc"] th, html[data-theme="mc"] .player-banner-name { font-family: 'Press Start 2P', monospace; font-style: normal; letter-spacing: 0; line-height: 1.5; }
+        html[data-theme="mc"] h3[class], html[data-theme="mc"] h4[class] { font-size: 0.8rem; }
+        html[data-theme="mc"] label, html[data-theme="mc"] th { font-size: 0.6rem; }
+        html[data-theme="mc"] .player-banner-name { font-size: 0.85rem !important; }
+        html[data-theme="mc"] input[class], html[data-theme="mc"] select[class], html[data-theme="mc"] textarea[class] {
+            background-color: #0f0f0f; background-image: none; color: #fff; border: 3px solid #8b8b8b; box-shadow: inset 2px 2px 0 #000;
+            font-family: 'VT323', monospace; font-size: 20px; text-shadow: none;
+        }
+        html[data-theme="mc"] input[class]:focus, html[data-theme="mc"] select[class]:focus, html[data-theme="mc"] textarea[class]:focus { border-color: #fff; outline: none; }
+        html[data-theme="mc"] button[class] {
+            background-color: #7c7c7c; background-image: none; border: 3px solid #111; color: #fff;
+            box-shadow: inset 3px 3px 0 #b8b8b8, inset -3px -3px 0 #4a4a4a;
+            font-family: 'Press Start 2P', monospace; font-size: 0.6rem; line-height: 1.6; padding-top: 0.6rem; padding-bottom: 0.6rem;
+        }
+        html[data-theme="mc"] button[class]:hover { background-color: #8794d4; box-shadow: inset 3px 3px 0 #c9d0f4, inset -3px -3px 0 #55608f; }
+        html[data-theme="mc"] button[class]:active { box-shadow: inset 3px 3px 0 #4a4a4a, inset -3px -3px 0 #b8b8b8; }
+        html[data-theme="mc"] button[class*="bg-[#739552]"], html[data-theme="mc"] button[class*="from-[#739552]"] {
+            background-color: #3f8f2a; box-shadow: inset 3px 3px 0 #86d44f, inset -3px -3px 0 #1f5a12; background-image: none;
+        }
+        html[data-theme="mc"] button[class*="bg-[#739552]"]:hover, html[data-theme="mc"] button[class*="from-[#739552]"]:hover { background-color: #4fae36; }
+        html[data-theme="mc"] button[class*="bg-red-"] { background-color: #8a2323; box-shadow: inset 3px 3px 0 #e06a6a, inset -3px -3px 0 #4d1010; }
+        html[data-theme="mc"] button[class*="bg-red-"]:hover { background-color: #a82e2e; }
+        html[data-theme="mc"] .lang-btn { font-size: 0.6rem; }
+        html[data-theme="mc"] .lang-btn.active { background-color: #3f8f2a; box-shadow: inset 3px 3px 0 #86d44f, inset -3px -3px 0 #1f5a12; }
+        html[data-theme="mc"] [class*="bg-amber-500"] { background-color: rgba(120, 85, 10, 0.85); }
+        /* Головний екран: небо, хмара, земля */
+        html[data-theme="mc"] #view-landing { background-image: linear-gradient(#5b9cf5 0%, #9cc8ff 60%, #b9dbff 100%); position: relative; overflow: hidden; }
+        html[data-theme="mc"] #view-landing::before { content: ''; position: absolute; top: 14%; left: -80px; width: 64px; height: 20px; background: #fff; opacity: 0.92;
+            box-shadow: 20px -20px 0 #fff, 40px -20px 0 #fff, 60px 0 0 #fff, 80px 0 0 #fff, 20px 0 0 #fff, 40px 0 0 #fff; animation: mc-cloud 60s linear infinite; }
+        @keyframes mc-cloud { from { transform: translateX(0); } to { transform: translateX(130vw); } }
+        html[data-theme="mc"] #view-landing::after { content: ''; position: fixed; left: 0; right: 0; bottom: 0; height: 17vh; pointer-events: none;
+            background: linear-gradient(#67b83a 0 14px, #4d8d2b 14px 22px, transparent 22px), var(--noise); background-color: #7a5333; background-size: 100% 100%, 64px 64px; image-rendering: pixelated; }
+        html[data-theme="mc"] #view-landing > * { position: relative; z-index: 1; }
+        html[data-theme="mc"] #view-landing h1 { font-family: 'Press Start 2P', monospace; font-size: clamp(1.25rem, 7vw, 2.1rem); line-height: 1.35; color: #d6d6d6;
+            text-shadow: 4px 4px 0 #3a3a3a, -2px -2px 0 #111, 2px -2px 0 #111, -2px 2px 0 #111, 2px 2px 0 #111; text-wrap: balance; }
+        html[data-theme="mc"] #view-landing > div > div[class*="from-[#739552]"] { background-image: none; background-color: #5fa036; background-image: var(--noise); box-shadow: inset 4px 4px 0 #86d44f, inset -4px -4px 0 #2f5f18; border: 3px solid #111; }
+        html[data-theme="mc"] #champion-login, html[data-theme="mc"] #champion-dash { font-family: 'Press Start 2P', monospace; font-size: 0.65rem; color: #ffd84a; }
+        /* Дошка */
+        html[data-theme="mc"] .chess-frame { background-color: #6d4a24; background-image: var(--noise); background-size: 64px 64px; border: 4px solid #151515; padding: 8px; }
+        html[data-theme="mc"] .chess-board-grid { border: 3px solid #151515; image-rendering: pixelated; }
+        html[data-theme="mc"] .sq-light { background-color: #d9c48a; background-image: var(--noise); background-size: 64px 64px; }
+        html[data-theme="mc"] .sq-dark { background-color: #5c9a35; background-image: var(--noise); background-size: 64px 64px; }
+        html[data-theme="mc"] .sq-last-move-light { background-color: #ecdf79 !important; }
+        html[data-theme="mc"] .sq-last-move-dark { background-color: #a9c53a !important; }
+        html[data-theme="mc"] .sq-light span { color: #4d7a2a !important; text-shadow: none; }
+        html[data-theme="mc"] .sq-dark span { color: #eaf5c6 !important; text-shadow: none; }
+        html[data-theme="mc"] .legal-dot { border-radius: 0; background-color: rgba(0, 0, 0, 0.42); }
+        html[data-theme="mc"] .legal-capture { border-radius: 0; border-color: rgba(0, 0, 0, 0.42); }
+        html[data-theme="mc"] .piece-svg { filter: none; }
+        html[data-theme="mc"] .square-cell svg { image-rendering: pixelated; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-emerald-600 selection:text-white">
+
+    <!-- Сповіщення (замість alert) -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+
+    <!-- ВЕРХНЯ ПАНЕЛЬ НАВІГАЦІЇ (прихована на екрані входу) -->
+    <header id="app-header" class="hidden bg-[#1b1f1a] border-b border-[#2d342b] px-3 sm:px-5 py-3 shadow-md">
+        <div class="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+            <div class="flex items-center gap-2.5">
+                <div class="w-9 h-9 rounded-xl bg-[#739552] flex items-center justify-center text-white font-bold text-xl shadow">
+                    ♔
+                </div>
+                <div>
+                    <h1 class="font-bold text-sm sm:text-lg text-white leading-tight">Сімейний шаховий турнір</h1>
+                    <p id="header-role-badge" class="text-[11px] sm:text-xs text-[#a3c285] font-medium">Олімпійська система (до 10 гравців)</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <!-- Індикатор режиму синхронізації -->
+                <span id="sync-status-pill" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#242922] text-[11px] sm:text-xs text-emerald-300 border border-[#353d32]">
+                    <span id="sync-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="sync-mode-text">Онлайн</span>
+                </span>
+
+                <div class="inline-flex rounded-lg overflow-hidden border border-[#3a4437]">
+                        <button type="button" data-lang="uk" class="lang-btn px-3 py-1.5 text-xs font-bold cursor-pointer">УКР</button>
+                        <button type="button" data-lang="en" class="lang-btn px-3 py-1.5 text-xs font-bold cursor-pointer">ENG</button>
+                    </div>
+                <button type="button" id="btn-theme-header" class="theme-toggle px-2.5 py-1.5 rounded-lg bg-[#272d25] hover:bg-[#343c31] text-gray-200 text-xs border border-[#3a4337] cursor-pointer" title="Змінити дизайн">🎨</button>
+                <!-- Кнопка поділитися посиланням / QR -->
+                <button id="btn-open-share" class="px-2.5 py-1.5 rounded-lg bg-[#272d25] hover:bg-[#343c31] text-gray-200 text-xs font-medium transition border border-[#3a4337] cursor-pointer" title="Поділитися з іншим пристроєм">
+                    📲<span class="hidden sm:inline"> QR / Посилання</span>
+                </button>
+
+                <!-- Ім'я поточного користувача -->
+                <span id="header-user-info" class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#242922] text-xs text-gray-200 border border-[#353d32]">
+                    <span id="header-user-device">💻</span>
+                    <span id="header-user-name">Гість</span>
+                </span>
+
+                <button id="btn-logout" class="px-3 py-1.5 rounded-lg bg-[#2b3029] hover:bg-[#383f35] text-gray-300 text-xs font-medium transition border border-[#3d453a] cursor-pointer">
+                    Вийти
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- ОСНОВНИЙ КОНТЕЙНЕР -->
+    <main class="flex-grow flex flex-col">
+
+        <!-- 1. ЕКРАН ВХОДУ (Миттєвий рендеринг: велика кнопка Гравець по центру, мала кнопка Адміністратор внизу) -->
+        <section id="view-landing" class="flex-grow flex flex-col items-center p-5 sm:p-8 min-h-screen bg-gradient-to-b from-[#161a15] via-[#1d241b] to-[#111410]">
+            <div class="w-full max-w-md flex justify-between items-center mt-1">
+                <button type="button" id="btn-theme" class="theme-toggle px-3 py-2 rounded-lg bg-[#20251e] hover:bg-[#2a3128] text-white text-xs font-bold border border-[#3a4437] cursor-pointer" data-theme-label="1" title="Змінити дизайн">🎨</button>
+                <div class="inline-flex rounded-lg overflow-hidden border border-[#3a4437]">
+                        <button type="button" data-lang="uk" class="lang-btn px-3 py-1.5 text-xs font-bold cursor-pointer">УКР</button>
+                        <button type="button" data-lang="en" class="lang-btn px-3 py-1.5 text-xs font-bold cursor-pointer">ENG</button>
+                    </div>
+            </div>
+            <div class="flex-grow w-full max-w-md flex flex-col items-center justify-center pb-10">
+                <div class="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#739552] to-[#56733b] flex items-center justify-center text-6xl text-white shadow-[0_15px_45px_rgba(115,149,82,0.4)] mb-6">♞</div>
+                <h1 class="text-3xl sm:text-4xl font-extrabold text-white text-center tracking-tight leading-tight">СІМЕЙНИЙ ШАХОВИЙ ТУРНІР</h1>
+                <div id="champion-login" class="hidden mt-4 px-4 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 text-sm font-bold"></div>
+                <form id="form-login" class="w-full mt-9 space-y-3">
+                    <label for="login-select" class="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Хто ви?</label>
+                    <select id="login-select" class="w-full bg-[#20251e] text-white text-lg font-semibold px-4 py-3.5 rounded-xl border border-[#3a4437] focus:outline-none focus:border-[#739552]"></select>
+                    <input id="login-guest" type="text" maxlength="26" placeholder="Введіть ваше ім'я" class="hidden w-full bg-[#141713] text-white px-4 py-3 rounded-xl border border-[#3a4437] focus:outline-none focus:border-[#739552] text-base">
+                    <input id="login-pin" type="password" inputmode="numeric" placeholder="PIN адміністратора" class="hidden w-full bg-[#141713] text-white px-4 py-3 rounded-xl border border-[#3a4437] focus:outline-none focus:border-[#739552] text-base">
+                    <button type="submit" class="w-full py-4 rounded-xl bg-gradient-to-br from-[#739552] to-[#56733b] hover:from-[#81a65d] hover:to-[#638444] text-white font-extrabold text-lg uppercase tracking-wide shadow-lg transition cursor-pointer">Увійти</button>
+                </form>
+            </div>
+        </section>
+
+        <!-- 2. РОБОЧИЙ ПРОСТІР ТУРНІРУ (Для Гравця та Адміністратора) -->
+        <section id="view-dashboard" class="hidden flex-grow max-w-6xl w-full mx-auto p-3 sm:p-6 flex-col gap-5">
+
+            <!-- ДОДАТКОВЕ МЕНЮ НАЛАШТУВАНЬ (ВИДИМЕ ТІЛЬКИ ДЛЯ АДМІНІСТРАТОРА) -->
+            <div id="admin-panel" class="hidden bg-[#1b201a] border-2 border-[#739552]/60 rounded-2xl p-4 sm:p-6 shadow-xl">
+                <div class="flex flex-wrap items-center justify-between gap-2 pb-4 mb-4 border-b border-[#2c332a]">
+                    <div class="flex items-center gap-2.5">
+                        <span class="px-2.5 py-1 rounded-md bg-[#739552] text-white text-xs font-bold uppercase">Адмін-панель</span>
+                        <h2 class="text-base sm:text-xl font-bold text-white">Налаштування та керування турніром</h2>
+                    </div>
+                    <span id="admin-tournament-state-badge" class="text-xs font-semibold px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Очікування учасників
+                    </span>
+                </div>
+
+                <!-- Поля налаштувань: Час гри, Кількість ігор, Час на очікування -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-5">
+                    <div class="bg-[#141713] p-3.5 rounded-xl border border-[#2a3128]">
+                        <label for="cfg-game-time" class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                            ⏱ Час гри (хвилин на гравця)
+                        </label>
+                        <input id="cfg-game-time" type="number" min="1" max="60" value="5" class="w-full bg-[#20251e] text-white font-bold text-lg px-3 py-2 rounded-lg border border-[#384135] focus:outline-none focus:border-[#739552]">
+                    </div>
+
+                    <div class="bg-[#141713] p-3.5 rounded-xl border border-[#2a3128]">
+                        <label for="cfg-games-count" class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                            ⚔️ Кількість ігор у матчі
+                        </label>
+                        <select id="cfg-games-count" class="w-full bg-[#20251e] text-white font-bold text-lg px-3 py-2 rounded-lg border border-[#384135] focus:outline-none focus:border-[#739552]">
+                            <option value="1">1 гра (на вибування)</option>
+                            <option value="3">До 2 перемог (з 3 ігор)</option>
+                            <option value="5">До 3 перемог (з 5 ігор)</option>
+                        </select>
+                    </div>
+
+                    <div class="bg-[#141713] p-3.5 rounded-xl border border-[#2a3128]">
+                        <label for="cfg-wait-time" class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                            ⏳ Час на очікування (секунд)
+                        </label>
+                        <input id="cfg-wait-time" type="number" min="5" max="300" value="15" class="w-full bg-[#20251e] text-white font-bold text-lg px-3 py-2 rounded-lg border border-[#384135] focus:outline-none focus:border-[#739552]">
+                    </div>
+                </div>
+
+                <div class="bg-[#141713] p-3.5 rounded-xl border border-[#2a3128] mb-5">
+                    <label for="new-player-name" class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">👤 Створити нового гравця</label>
+                    <div class="flex gap-2">
+                        <input id="new-player-name" type="text" maxlength="26" placeholder="Ім'я нового гравця" class="flex-grow bg-[#20251e] text-white text-sm px-3 py-2 rounded-lg border border-[#384135] focus:outline-none focus:border-[#739552]">
+                        <button id="btn-add-roster" type="button" class="px-4 py-2 rounded-lg bg-[#739552] hover:bg-[#82a85d] text-white text-xs font-bold cursor-pointer">Додати</button>
+                    </div>
+                    <div id="roster-admin-list" class="flex flex-wrap gap-2 mt-3"></div>
+                </div>
+                <!-- Кнопки дій адміністратора -->
+                <div class="flex flex-wrap items-center gap-2.5">
+                    <button id="btn-save-settings" class="px-4 py-2.5 rounded-xl bg-[#2a3228] hover:bg-[#364033] text-white text-xs sm:text-sm font-semibold transition border border-[#424f3e] cursor-pointer">
+                        💾 Зберегти налаштування
+                    </button>
+
+                    <button id="btn-add-bot" class="px-4 py-2.5 rounded-xl bg-sky-700/85 hover:bg-sky-600 text-white text-xs sm:text-sm font-semibold transition cursor-pointer">
+                        🤖 Додати тестового гравця
+                    </button>
+
+                    <button id="btn-start-tournament" class="px-5 py-2.5 rounded-xl bg-[#739552] hover:bg-[#82a85d] text-white text-xs sm:text-sm font-bold shadow-lg transition cursor-pointer">
+                        🎲 Сформувати пари / Старт турніру
+                    </button>
+
+                    <button id="btn-toggle-firebase-cfg" class="px-3.5 py-2.5 rounded-xl bg-[#20251e] hover:bg-[#2a3027] text-gray-300 text-xs font-medium transition border border-[#363e33] cursor-pointer">
+                        🌐 Хмарна синхронізація (GitHub Pages)
+                    </button>
+
+                    <button id="btn-open-stats" class="px-3.5 py-2.5 rounded-xl bg-[#20251e] hover:bg-[#2a3027] text-amber-300 text-xs font-semibold transition border border-[#363e33] cursor-pointer">📊 Статистика перемог</button>
+
+                    <button id="btn-reset-tournament" class="sm:ml-auto px-4 py-2.5 rounded-xl bg-red-900/65 hover:bg-red-800 text-red-200 text-xs sm:text-sm font-semibold transition border border-red-700/50 cursor-pointer">
+                        🗑 Скинути турнір
+                    </button>
+                </div>
+
+                <!-- Приховане меню підключення зовнішнього Firebase для публічного хостингу (GitHub Pages / Netlify) -->
+                <div id="external-firebase-box" class="hidden mt-4 pt-4 border-t border-[#2c332a]">
+                    <p class="text-xs text-gray-300 mb-2">
+                        Для онлайн-гри з різних телефонів та ПК при розміщенні файлу на власному хостингу (наприклад, GitHub Pages) вставте JSON-конфігурацію вашого вебдодатку Firebase:
+                    </p>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <input id="input-custom-fb-config" type="text" placeholder='{"apiKey":"...","authDomain":"...","projectId":"..."}' class="flex-grow bg-[#141713] text-xs font-mono text-gray-200 px-3 py-2 rounded-lg border border-[#384135] focus:outline-none focus:border-[#739552]">
+                        <button id="btn-apply-custom-fb" class="px-4 py-2 rounded-lg bg-[#739552] hover:bg-[#82a85d] text-white text-xs font-bold shrink-0 cursor-pointer">
+                            Підключити
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ІНФОРМАЦІЙНА ПАНЕЛЬ НАЛАШТУВАНЬ (Бачать усі учасники) -->
+            <div class="grid grid-cols-3 gap-2 sm:gap-4 bg-[#1b1f1a] p-3 sm:p-4 rounded-2xl border border-[#2c332a]">
+                <div class="text-center sm:text-left flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+                    <span class="text-lg sm:text-xl">⏱</span>
+                    <div>
+                        <div class="text-[11px] sm:text-xs text-gray-400">Час гри</div>
+                        <div id="info-game-time" class="font-bold text-xs sm:text-base text-white">5 хв</div>
+                    </div>
+                </div>
+                <div class="text-center sm:text-left flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 border-x border-[#2c332a] px-2 sm:px-4">
+                    <span class="text-lg sm:text-xl">⚔️</span>
+                    <div>
+                        <div class="text-[11px] sm:text-xs text-gray-400">Кількість ігор</div>
+                        <div id="info-games-count" class="font-bold text-xs sm:text-base text-white">1 гра</div>
+                    </div>
+                </div>
+                <div class="text-center sm:text-left flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+                    <span class="text-lg sm:text-xl">⏳</span>
+                    <div>
+                        <div class="text-[11px] sm:text-xs text-gray-400">Очікування</div>
+                        <div id="info-wait-time" class="font-bold text-xs sm:text-base text-white">15 сек</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- П'ЄДЕСТАЛ ПОШАНИ (1, 2, 3 МІСЦЯ З ІМЕНАМИ В КІНЦІ ТУРНІРУ) -->
+            <div id="podium-section" class="hidden bg-gradient-to-b from-[#232a20] to-[#181d16] border-2 border-amber-400/60 rounded-3xl p-5 sm:p-8 text-center shadow-2xl">
+                <div class="inline-block px-4 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold uppercase tracking-widest mb-2">
+                    Турнір завершено
+                </div>
+                <h2 class="text-2xl sm:text-4xl font-extrabold text-white mb-6 sm:mb-8">
+                    🏆 Переможці турніру
+                </h2>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-3xl mx-auto items-end">
+                    <!-- 2 місце -->
+                    <div class="order-2 sm:order-1 bg-[#1f241d] border border-gray-400/40 rounded-2xl p-5 flex flex-col items-center shadow-lg">
+                        <div class="w-12 h-12 rounded-full bg-gray-300/20 text-gray-200 flex items-center justify-center text-2xl font-black mb-2 border border-gray-300/40">
+                            2
+                        </div>
+                        <span class="text-xs uppercase tracking-wider text-gray-400 font-semibold">2 місце</span>
+                        <div id="podium-2nd" class="text-xl font-bold text-white mt-1 break-words">—</div>
+                    </div>
+
+                    <!-- 1 місце -->
+                    <div class="order-1 sm:order-2 bg-gradient-to-b from-amber-500/25 to-[#22281f] border-2 border-amber-400 rounded-2xl p-6 sm:py-8 flex flex-col items-center shadow-[0_0_30px_rgba(251,191,36,0.25)] transform sm:-translate-y-3">
+                        <div class="text-4xl mb-1">👑</div>
+                        <div class="w-14 h-14 rounded-full bg-amber-400 text-gray-950 flex items-center justify-center text-2xl font-black mb-2 shadow">
+                            1
+                        </div>
+                        <span class="text-xs uppercase tracking-wider text-amber-300 font-bold">1 місце • Чемпіон</span>
+                        <div id="podium-1st" class="text-2xl font-extrabold text-white mt-1 break-words">—</div>
+                    </div>
+
+                    <!-- 3 місце -->
+                    <div class="order-3 bg-[#1f241d] border border-amber-700/50 rounded-2xl p-5 flex flex-col items-center shadow-lg">
+                        <div class="w-12 h-12 rounded-full bg-amber-700/25 text-amber-500 flex items-center justify-center text-2xl font-black mb-2 border border-amber-600/40">
+                            3
+                        </div>
+                        <span class="text-xs uppercase tracking-wider text-amber-500/90 font-semibold">3 місце</span>
+                        <div id="podium-3rd" class="text-xl font-bold text-white mt-1 break-words">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- БЛОК АКТИВНОЇ ШАХОВОЇ ГРИ -->
+            <div id="champion-dash" class="hidden mb-4 mx-auto w-fit px-5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold text-center"></div>
+            <div id="active-match-section" class="hidden flex flex-col lg:flex-row gap-5 items-center lg:items-start justify-center">
+                
+                <!-- ШАХОВА ДОШКА В ТОЧНОМУ СТИЛІ ЗРАЗКА -->
+                <div id="board-col" class="w-full max-w-[460px] flex flex-col shadow-2xl rounded-sm overflow-hidden border-2 border-[#0d0d0d]">
+                    
+                    <!-- ВЕРХНЯ ЧОРНА ПЛАШКА (Ім'я суперника білим курсивом + таймер) -->
+                    <div class="bg-[#111111] text-white px-3.5 sm:px-4 py-2 flex items-center justify-between border-b border-black">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span id="top-player-color-dot" class="w-3 h-3 rounded-full bg-white border border-gray-500 shrink-0"></span>
+                            <span id="top-player-name" class="player-banner-name text-xl sm:text-2xl text-white truncate">
+                                Vasily Smyslov
+                            </span>
+                        </div>
+                        <div id="top-player-clock" class="font-mono text-sm sm:text-lg font-bold px-2.5 py-0.5 rounded bg-[#1f221e] text-gray-200 border border-gray-700 shrink-0">
+                            05:00
+                        </div>
+                    </div>
+
+                    <!-- ЗЕЛЕНА РАМКА ТА ПОЛЕ 8x8 -->
+                    <div class="chess-frame relative">
+                        <div id="chess-board" class="chess-board-grid">
+                            <!-- Клітинки генеруються через JS -->
+                        </div>
+                    </div>
+
+                    <!-- НИЖНЯ ЧОРНА ПЛАШКА (Ім'я гравця білим курсивом + таймер) -->
+                    <div class="bg-[#111111] text-white px-3.5 sm:px-4 py-2 flex items-center justify-between border-t border-black">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span id="bottom-player-color-dot" class="w-3 h-3 rounded-full bg-black border border-gray-400 shrink-0"></span>
+                            <span id="bottom-player-name" class="player-banner-name text-xl sm:text-2xl text-white truncate">
+                                Garry Kasparov
+                            </span>
+                        </div>
+                        <div id="bottom-player-clock" class="font-mono text-sm sm:text-lg font-bold px-2.5 py-0.5 rounded bg-[#739552] text-white shrink-0">
+                            05:00
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ПАНЕЛЬ СТАТУСУ МАТЧУ ТА КЕРУВАННЯ ГРОЮ -->
+                <div id="match-panel" class="w-full max-w-[460px] lg:max-w-xs bg-[#1b1f1a] border border-[#2d342b] rounded-2xl p-4 sm:p-5 flex flex-col gap-4">
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <span id="match-stage-label" class="text-xs font-bold uppercase tracking-wider text-[#a3c285]">Раунд 1</span>
+                            <span id="match-series-score" class="text-xs font-bold px-2 py-0.5 rounded bg-[#272d25] text-white">Рахунок: 0 : 0</span>
+                        </div>
+                        <h3 id="match-turn-indicator" class="text-lg font-bold text-white">Ваш хід</h3>
+                        <p id="match-substatus" class="text-xs text-gray-400 mt-0.5">Оберіть фігуру на дошці для ходу</p>
+                    </div>
+
+                    <!-- Таймер очікування перед початком раунду -->
+                    <div id="match-wait-banner" class="hidden bg-amber-500/15 border border-amber-500/40 rounded-xl p-3 text-center">
+                        <div class="text-xs text-amber-300 font-medium">Підготовка до старту партії</div>
+                        <div id="match-wait-countdown" class="text-2xl font-black text-amber-400 font-mono mt-0.5">15 с</div>
+                    </div>
+
+                    <!-- Історія ходів -->
+                    <div class="bg-[#141713] rounded-xl p-3 border border-[#282e26]">
+                        <div class="text-xs font-semibold text-gray-400 mb-2">Останні ходи:</div>
+                        <div id="move-history-box" class="h-28 overflow-y-auto text-xs font-mono text-gray-300 space-y-1">
+                            <span class="text-gray-500 italic">Партія розпочалася...</span>
+                        </div>
+                    </div>
+
+                    <!-- Кнопки дій у матчі -->
+                    <div id="match-controls" class="flex flex-col gap-2">
+                        <button id="btn-show-bracket-modal" class="w-full py-2 px-4 rounded-xl bg-[#272d25] hover:bg-[#323a30] text-[#b4d494] text-xs font-semibold border border-[#3a4337] transition cursor-pointer">
+                            📊 Відкрити турнірну таблицю
+                        </button>
+                        <button id="btn-resign-game" class="w-full py-2.5 px-4 rounded-xl bg-red-900/55 hover:bg-red-800/85 text-red-200 text-sm font-semibold border border-red-700/40 transition cursor-pointer">
+                            🏳 Здатися в цій партії
+                        </button>
+                        <button id="btn-close-spectate" class="hidden w-full py-2.5 px-4 rounded-xl bg-[#2a3028] hover:bg-[#363e34] text-gray-200 text-sm font-semibold transition cursor-pointer">
+                            ← Повернутися до таблиці
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ТУРНІРНА ТАБЛИЦЯ / СІТКА ТА СПИСОК УЧАСНИКІВ -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                
+                <!-- СПИСОК ЗАРЕЄСТРОВАНИХ УЧАСНИКІВ (до 10 осіб) -->
+                <div class="bg-[#1b1f1a] border border-[#2d342b] rounded-2xl p-4 sm:p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-bold text-base sm:text-lg text-white flex items-center gap-2">
+                            <span>👥</span> Учасники турніру
+                        </h3>
+                        <span id="players-counter-badge" class="px-2.5 py-1 rounded-lg bg-[#739552]/25 text-[#b5d696] text-xs font-bold">
+                            0 / 10
+                        </span>
+                    </div>
+
+                    <div id="players-list-container" class="space-y-2">
+                        <!-- Список гравців -->
+                    </div>
+                </div>
+
+                <!-- ОЛІМПІЙСЬКА ТУРНІРНА СІТКА ТА РЕЗУЛЬТАТИ -->
+                <div class="lg:col-span-2 bg-[#1b1f1a] border border-[#2d342b] rounded-2xl p-4 sm:p-5">
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+                        <h3 class="font-bold text-base sm:text-lg text-white flex items-center gap-2">
+                            <span>🏆</span> Турнірна таблиця та результати пар
+                        </h3>
+                        <span id="bracket-status-text" class="text-xs text-gray-400">
+                            Очікування формування пар
+                        </span>
+                    </div>
+
+                    <div id="bracket-container" class="space-y-5">
+                        <!-- Сітка матчів -->
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- МОДАЛЬНЕ ВІКНО АВТОМАТИЧНОГО ПОКАЗУ ТУРНІРНОЇ ТАБЛИЦІ (До та після кожної гри) -->
+    <div id="modal-round-summary" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-[#1b201a] border-2 border-[#739552] rounded-3xl max-w-2xl w-full p-5 sm:p-7 shadow-2xl max-h-[88vh] flex flex-col">
+            <div class="flex items-center justify-between pb-3 mb-4 border-b border-[#2d342b]">
+                <div>
+                    <span id="modal-summary-badge" class="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded bg-[#739552]/25 text-[#b4d494]">
+                        Оновлення турніру
+                    </span>
+                    <h3 id="modal-summary-title" class="text-xl sm:text-2xl font-extrabold text-white mt-1">
+                        Сформована турнірна таблиця
+                    </h3>
+                </div>
+                <button id="btn-close-summary-modal" class="text-gray-400 hover:text-white text-2xl leading-none px-2 py-1 cursor-pointer">✕</button>
+            </div>
+
+            <div id="modal-summary-body" class="overflow-y-auto space-y-4 pr-1 flex-grow">
+                <!-- Вміст турнірної таблиці -->
+            </div>
+
+            <div class="pt-4 mt-4 border-t border-[#2d342b] flex justify-end">
+                <button id="btn-confirm-summary-modal" class="w-full sm:w-auto px-6 py-3 rounded-xl bg-[#739552] hover:bg-[#82a85d] text-white font-bold text-sm shadow-lg transition cursor-pointer">
+                    Перейти до гри / таблиці →
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- СТАТИСТИКА ПЕРЕМОГ (профіль Папулі) -->
+    <div id="modal-stats" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75">
+        <div class="bg-[#1c211a] border border-[#363e33] rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-5">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-white">📊 Статистика перемог</h3>
+                <button id="btn-close-stats" class="text-gray-400 hover:text-white text-xl cursor-pointer px-2">✕</button>
+            </div>
+            <div id="stats-body"></div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНЕ ВІКНО QR-КОДУ ТА ПОСИЛАННЯ ДЛЯ ІНШИХ ПРИСТРОЇВ -->
+    <div id="modal-share" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-[#1b201a] border border-[#3a4437] rounded-3xl max-w-sm w-full p-6 text-center shadow-2xl">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-lg font-bold text-white">Підключення пристроїв</h3>
+                <button id="btn-close-share" class="text-gray-400 hover:text-white text-xl leading-none px-2 py-1 cursor-pointer">✕</button>
+            </div>
+            <p class="text-xs text-gray-400 mb-4">
+                Відскануйте QR-код камерою телефону/планшета або скопіюйте посилання для входу гравців.
+            </p>
+            <div id="qr-svg-container" class="bg-white p-3 rounded-2xl inline-flex items-center justify-center mx-auto mb-4 shadow-inner">
+                <!-- Вбудований SVG QR-код генерується автономно -->
+            </div>
+            <div class="flex gap-2">
+                <input id="share-url-input" type="text" readonly class="flex-grow bg-[#141713] text-gray-300 text-xs px-3 py-2.5 rounded-xl border border-[#333b30] focus:outline-none">
+                <button id="btn-copy-share-url" class="px-4 py-2.5 rounded-xl bg-[#739552] hover:bg-[#82a85d] text-white text-xs font-bold shrink-0 cursor-pointer">
+                    Копіювати
+                </button>
+            </div>
+            <p id="share-local-hint" class="hidden text-[11px] text-amber-300/90 mt-3 text-left bg-amber-950/40 p-2.5 rounded-xl border border-amber-700/40">
+                💡 Ви відкрили файл локально. Для гри між різними телефонами та ПК завантажте цей файл на безкоштовний хостинг (наприклад, GitHub Pages) або відкрийте кілька вкладок браузера.
+            </p>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНЕ ВІКНО ВИБОРУ ПЕРЕТВОРЕННЯ ПІШАКА -->
+    <div id="modal-promotion" class="hidden fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+        <div class="bg-[#1b201a] border border-[#739552] rounded-2xl p-5 text-center max-w-xs w-full shadow-2xl">
+            <h4 class="font-bold text-white mb-3">Оберіть фігуру для перетворення:</h4>
+            <div class="grid grid-cols-4 gap-2" id="promotion-choices">
+                <!-- Кнопки ферзя, тури, слона, коня -->
+            </div>
+        </div>
+    </div>
+
+    <!-- ПОВНІСТЮ АВТОНОМНИЙ ШАХОВИЙ РУШІЙ, QR-ГЕНЕРАТОР ТА HYBRID SYNC -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, serverTimestamp, getDocFromServer } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // =========================================================================
+        // 1. АВТОНОМНИЙ ШАХОВИЙ РУШІЙ (100% вбудований, без зовнішніх CDN)
+        // Підтримує всі правила: легальні ходи, шах, мат, пат, рокіровка,
+        // взяття на проході (en passant), перетворення пішака, FEN та нотацію SAN.
+        // =========================================================================
+        class AutonomousChess {
+            constructor(fen) {
+                this.START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+                this.load(fen || this.START_FEN);
+            }
+
+            load(fen) {
+                const parts = (fen || this.START_FEN).trim().split(/\s+/);
+                this.board = Array.from({ length: 8 }, () => Array(8).fill(null));
+                const rows = parts[0].split('/');
+                for (let r = 0; r < 8; r++) {
+                    let c = 0;
+                    for (const ch of rows[r]) {
+                        if (ch >= '1' && ch <= '8') {
+                            c += parseInt(ch, 10);
+                        } else {
+                            const color = ch === ch.toUpperCase() ? 'w' : 'b';
+                            const type = ch.toLowerCase();
+                            this.board[r][c] = { type, color };
+                            c++;
+                        }
+                    }
+                }
+                this.turnColor = parts[1] === 'b' ? 'b' : 'w';
+                this.castling = parts[2] && parts[2] !== '-' ? parts[2] : '';
+                this.epSquare = parts[3] && parts[3] !== '-' ? parts[3] : null;
+                this.halfMoves = parseInt(parts[4] || '0', 10);
+                this.fullMoves = parseInt(parts[5] || '1', 10);
+            }
+
+            fen() {
+                const rows = [];
+                for (let r = 0; r < 8; r++) {
+                    let empty = 0;
+                    let rowStr = '';
+                    for (let c = 0; c < 8; c++) {
+                        const p = this.board[r][c];
+                        if (!p) {
+                            empty++;
+                        } else {
+                            if (empty > 0) { rowStr += empty; empty = 0; }
+                            rowStr += p.color === 'w' ? p.type.toUpperCase() : p.type;
+                        }
+                    }
+                    if (empty > 0) rowStr += empty;
+                    rows.push(rowStr);
+                }
+                const castlingStr = this.castling || '-';
+                const epStr = this.epSquare || '-';
+                return `${rows.join('/')} ${this.turnColor} ${castlingStr} ${epStr} ${this.halfMoves} ${this.fullMoves}`;
+            }
+
+            turn() { return this.turnColor; }
+            getBoard() { return this.board.map(row => row.map(cell => (cell ? { ...cell } : null))); } // знімок: не змінюється при перевірці ходів
+
+            sqToCoords(sq) {
+                const col = sq.charCodeAt(0) - 97;
+                const row = 8 - parseInt(sq[1], 10);
+                return { row, col };
+            }
+
+            coordsToSq(row, col) {
+                return String.fromCharCode(97 + col) + (8 - row);
+            }
+
+            inBounds(r, c) {
+                return r >= 0 && r < 8 && c >= 0 && c < 8;
+            }
+
+            cloneState() {
+                return {
+                    board: this.board.map(row => row.map(cell => cell ? { ...cell } : null)),
+                    turnColor: this.turnColor,
+                    castling: this.castling,
+                    epSquare: this.epSquare,
+                    halfMoves: this.halfMoves,
+                    fullMoves: this.fullMoves
+                };
+            }
+
+            restoreState(st) {
+                this.board = st.board;
+                this.turnColor = st.turnColor;
+                this.castling = st.castling;
+                this.epSquare = st.epSquare;
+                this.halfMoves = st.halfMoves;
+                this.fullMoves = st.fullMoves;
+            }
+
+            // Перевірка, чи атакована клітинка (r, c) фігурами кольору byColor
+            isSquareAttacked(r, c, byColor) {
+                // Пішаки
+                const pawnDir = byColor === 'w' ? 1 : -1;
+                for (const dc of [-1, 1]) {
+                    const pr = r + pawnDir, pc = c + dc;
+                    if (this.inBounds(pr, pc)) {
+                        const p = this.board[pr][pc];
+                        if (p && p.color === byColor && p.type === 'p') return true;
+                    }
+                }
+                // Коні
+                const knightOffsets = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+                for (const [dr, dc] of knightOffsets) {
+                    const nr = r + dr, nc = c + dc;
+                    if (this.inBounds(nr, nc)) {
+                        const p = this.board[nr][nc];
+                        if (p && p.color === byColor && p.type === 'n') return true;
+                    }
+                }
+                // Король
+                for (let dr = -1; dr <= 1; dr++) {
+                    for (let dc = -1; dc <= 1; dc++) {
+                        if (dr === 0 && dc === 0) continue;
+                        const kr = r + dr, kc = c + dc;
+                        if (this.inBounds(kr, kc)) {
+                            const p = this.board[kr][kc];
+                            if (p && p.color === byColor && p.type === 'k') return true;
+                        }
+                    }
+                }
+                // Тури та Ферзі (прямі лінії)
+                const ortho = [[-1,0],[1,0],[0,-1],[0,1]];
+                for (const [dr, dc] of ortho) {
+                    let nr = r + dr, nc = c + dc;
+                    while (this.inBounds(nr, nc)) {
+                        const p = this.board[nr][nc];
+                        if (p) {
+                            if (p.color === byColor && (p.type === 'r' || p.type === 'q')) return true;
+                            break;
+                        }
+                        nr += dr; nc += dc;
+                    }
+                }
+                // Слони та Ферзі (діагоналі)
+                const diag = [[-1,-1],[-1,1],[1,-1],[1,1]];
+                for (const [dr, dc] of diag) {
+                    let nr = r + dr, nc = c + dc;
+                    while (this.inBounds(nr, nc)) {
+                        const p = this.board[nr][nc];
+                        if (p) {
+                            if (p.color === byColor && (p.type === 'b' || p.type === 'q')) return true;
+                            break;
+                        }
+                        nr += dr; nc += dc;
+                    }
+                }
+                return false;
+            }
+
+            findKing(color) {
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        const p = this.board[r][c];
+                        if (p && p.color === color && p.type === 'k') return { r, c };
+                    }
+                }
+                return null;
+            }
+
+            inCheck(color = this.turnColor) {
+                const king = this.findKing(color);
+                if (!king) return false;
+                const opp = color === 'w' ? 'b' : 'w';
+                return this.isSquareAttacked(king.r, king.c, opp);
+            }
+
+            generatePseudoMoves(color) {
+                const moves = [];
+                const opp = color === 'w' ? 'b' : 'w';
+
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        const p = this.board[r][c];
+                        if (!p || p.color !== color) continue;
+                        const from = this.coordsToSq(r, c);
+
+                        if (p.type === 'p') {
+                            const dir = color === 'w' ? -1 : 1;
+                            const startRow = color === 'w' ? 6 : 1;
+                            const promoRow = color === 'w' ? 0 : 7;
+
+                            // Хід вперед на 1
+                            const r1 = r + dir;
+                            if (this.inBounds(r1, c) && !this.board[r1][c]) {
+                                if (r1 === promoRow) {
+                                    ['q','r','b','n'].forEach(pr => moves.push({ from, to: this.coordsToSq(r1, c), promotion: pr, flags: 'p' }));
+                                } else {
+                                    moves.push({ from, to: this.coordsToSq(r1, c), flags: 'n' });
+                                    // Хід вперед на 2 зі стартової позиції
+                                    const r2 = r + dir * 2;
+                                    if (r === startRow && !this.board[r2][c]) {
+                                        moves.push({ from, to: this.coordsToSq(r2, c), flags: 'b' });
+                                    }
+                                }
+                            }
+                            // Взяття по діагоналі + en passant
+                            for (const dc of [-1, 1]) {
+                                const tc = c + dc;
+                                if (!this.inBounds(r1, tc)) continue;
+                                const targetSq = this.coordsToSq(r1, tc);
+                                const targetPiece = this.board[r1][tc];
+                                if (targetPiece && targetPiece.color === opp) {
+                                    if (r1 === promoRow) {
+                                        ['q','r','b','n'].forEach(pr => moves.push({ from, to: targetSq, promotion: pr, captured: targetPiece.type, flags: 'cp' }));
+                                    } else {
+                                        moves.push({ from, to: targetSq, captured: targetPiece.type, flags: 'c' });
+                                    }
+                                } else if (this.epSquare === targetSq) {
+                                    moves.push({ from, to: targetSq, captured: 'p', flags: 'e' });
+                                }
+                            }
+                        } else if (p.type === 'n') {
+                            const offsets = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+                            for (const [dr, dc] of offsets) {
+                                const nr = r + dr, nc = c + dc;
+                                if (!this.inBounds(nr, nc)) continue;
+                                const target = this.board[nr][nc];
+                                if (!target || target.color === opp) {
+                                    moves.push({ from, to: this.coordsToSq(nr, nc), captured: target?.type, flags: target ? 'c' : 'n' });
+                                }
+                            }
+                        } else if (p.type === 'b' || p.type === 'r' || p.type === 'q') {
+                            const dirs = [];
+                            if (p.type === 'r' || p.type === 'q') dirs.push([-1,0],[1,0],[0,-1],[0,1]);
+                            if (p.type === 'b' || p.type === 'q') dirs.push([-1,-1],[-1,1],[1,-1],[1,1]);
+                            for (const [dr, dc] of dirs) {
+                                let nr = r + dr, nc = c + dc;
+                                while (this.inBounds(nr, nc)) {
+                                    const target = this.board[nr][nc];
+                                    if (!target) {
+                                        moves.push({ from, to: this.coordsToSq(nr, nc), flags: 'n' });
+                                    } else {
+                                        if (target.color === opp) {
+                                            moves.push({ from, to: this.coordsToSq(nr, nc), captured: target.type, flags: 'c' });
+                                        }
+                                        break;
+                                    }
+                                    nr += dr; nc += dc;
+                                }
+                            }
+                        } else if (p.type === 'k') {
+                            for (let dr = -1; dr <= 1; dr++) {
+                                for (let dc = -1; dc <= 1; dc++) {
+                                    if (dr === 0 && dc === 0) continue;
+                                    const nr = r + dr, nc = c + dc;
+                                    if (!this.inBounds(nr, nc)) continue;
+                                    const target = this.board[nr][nc];
+                                    if (!target || target.color === opp) {
+                                        moves.push({ from, to: this.coordsToSq(nr, nc), captured: target?.type, flags: target ? 'c' : 'n' });
+                                    }
+                                }
+                            }
+                            // Рокіровка
+                            const homeRow = color === 'w' ? 7 : 0;
+                            if (r === homeRow && c === 4 && !this.isSquareAttacked(homeRow, 4, opp)) {
+                                const kRight = color === 'w' ? 'K' : 'k';
+                                const qRight = color === 'w' ? 'Q' : 'q';
+                                if (this.castling.includes(kRight) && !this.board[homeRow][5] && !this.board[homeRow][6]) {
+                                    if (!this.isSquareAttacked(homeRow, 5, opp) && !this.isSquareAttacked(homeRow, 6, opp)) {
+                                        moves.push({ from, to: this.coordsToSq(homeRow, 6), flags: 'k' });
+                                    }
+                                }
+                                if (this.castling.includes(qRight) && !this.board[homeRow][3] && !this.board[homeRow][2] && !this.board[homeRow][1]) {
+                                    if (!this.isSquareAttacked(homeRow, 3, opp) && !this.isSquareAttacked(homeRow, 2, opp)) {
+                                        moves.push({ from, to: this.coordsToSq(homeRow, 2), flags: 'q' });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return moves;
+            }
+
+            applyRawMove(mv) {
+                const { row: fr, col: fc } = this.sqToCoords(mv.from);
+                const { row: tr, col: tc } = this.sqToCoords(mv.to);
+                const piece = this.board[fr][fc];
+                const captured = this.board[tr][tc];
+
+                // Взяття на проході
+                if (mv.flags === 'e') {
+                    const capRow = piece.color === 'w' ? tr + 1 : tr - 1;
+                    this.board[capRow][tc] = null;
+                }
+
+                // Рокіровка (переміщення тури)
+                if (mv.flags === 'k') {
+                    this.board[fr][5] = this.board[fr][7];
+                    this.board[fr][7] = null;
+                } else if (mv.flags === 'q') {
+                    this.board[fr][3] = this.board[fr][0];
+                    this.board[fr][0] = null;
+                }
+
+                this.board[tr][tc] = mv.promotion ? { type: mv.promotion, color: piece.color } : piece;
+                this.board[fr][fc] = null;
+
+                // Оновлення прав на рокіровку
+                if (piece.type === 'k') {
+                    this.castling = this.castling.replace(piece.color === 'w' ? /[KQ]/g : /[kq]/g, '');
+                }
+                if (mv.from === 'a1' || mv.to === 'a1') this.castling = this.castling.replace('Q', '');
+                if (mv.from === 'h1' || mv.to === 'h1') this.castling = this.castling.replace('K', '');
+                if (mv.from === 'a8' || mv.to === 'a8') this.castling = this.castling.replace('q', '');
+                if (mv.from === 'h8' || mv.to === 'h8') this.castling = this.castling.replace('k', '');
+
+                // Оновлення поля en passant
+                if (mv.flags === 'b') {
+                    const epRow = (fr + tr) / 2;
+                    this.epSquare = this.coordsToSq(epRow, fc);
+                } else {
+                    this.epSquare = null;
+                }
+
+                this.halfMoves = (piece.type === 'p' || captured) ? 0 : this.halfMoves + 1;
+                if (this.turnColor === 'b') this.fullMoves++;
+                this.turnColor = this.turnColor === 'w' ? 'b' : 'w';
+            }
+
+            legalMoves(filterSquare = null) {
+                const color = this.turnColor;
+                const pseudo = this.generatePseudoMoves(color);
+                const valid = [];
+
+                for (const mv of pseudo) {
+                    if (filterSquare && mv.from !== filterSquare) continue;
+                    const backup = this.cloneState();
+                    this.applyRawMove(mv);
+                    const kingInCheck = this.inCheck(color);
+                    this.restoreState(backup);
+                    if (!kingInCheck) {
+                        valid.push(mv);
+                    }
+                }
+                return valid;
+            }
+
+            move({ from, to, promotion = 'q' }) {
+                const valid = this.legalMoves(from);
+                const chosen = valid.find(m => m.to === to && (!m.promotion || m.promotion === promotion));
+                if (!chosen) return null;
+
+                const piece = this.board[this.sqToCoords(from).row][this.sqToCoords(from).col];
+                const allLegal = this.legalMoves();
+                this.applyRawMove(chosen);
+
+                // Формування читабельної алгебраїчної нотації (SAN)
+                let san = '';
+                if (chosen.flags === 'k') san = 'O-O';
+                else if (chosen.flags === 'q') san = 'O-O-O';
+                else {
+                    const pChar = piece.type === 'p' ? '' : piece.type.toUpperCase();
+                    const capChar = (chosen.captured || chosen.flags === 'e') ? (piece.type === 'p' ? from[0] + 'x' : 'x') : '';
+                    const promoChar = chosen.promotion ? '=' + chosen.promotion.toUpperCase() : '';
+                    let dis = '';
+                    if (piece.type !== 'p' && piece.type !== 'k') {
+                        const others = allLegal.filter(m => {
+                            if (m.to !== to || m.from === from) return false;
+                            const c = this.sqToCoords(m.from);
+                            const bp = this.board[c.row][c.col];
+                            return bp && bp.type === piece.type && bp.color === piece.color;
+                        });
+                        if (others.length) {
+                            const sameFile = others.some(m => m.from[0] === from[0]);
+                            const sameRank = others.some(m => m.from[1] === from[1]);
+                            dis = !sameFile ? from[0] : (!sameRank ? from[1] : from);
+                        }
+                    }
+                    san = `${pChar}${dis}${capChar}${to}${promoChar}`;
+                }
+                if (this.inCheckmate()) san += '#';
+                else if (this.inCheck()) san += '+';
+
+                return { ...chosen, san };
+            }
+
+            inCheckmate() {
+                return this.inCheck(this.turnColor) && this.legalMoves().length === 0;
+            }
+
+            inStalemate() {
+                return !this.inCheck(this.turnColor) && this.legalMoves().length === 0;
+            }
+
+            insufficientMaterial() {
+                const pieces = [];
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        if (this.board[r][c]) pieces.push(this.board[r][c]);
+                    }
+                }
+                if (pieces.length === 2) return true;
+                if (pieces.length === 3 && pieces.some(p => p.type === 'n' || p.type === 'b')) return true;
+                return false;
+            }
+
+            isDraw() {
+                return this.inStalemate() || this.halfMoves >= 100 || this.insufficientMaterial();
+            }
+        }
+
+        // =========================================================================
+        // 2. АВТОНОМНИЙ SVG QR-ГЕНЕРАТОР (без залежності від зовнішніх картинок)
+        // =========================================================================
+        function generateAutonomousQRSVG(text) {
+            const size = 25;
+            const grid = Array.from({ length: size }, () => Array(size).fill(false));
+
+            // Три пошукові квадрати (Finder patterns)
+            const drawFinder = (r0, c0) => {
+                for (let r = 0; r < 7; r++) {
+                    for (let c = 0; c < 7; c++) {
+                        const isBorder = r === 0 || r === 6 || c === 0 || c === 6;
+                        const isCenter = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+                        grid[r0 + r][c0 + c] = isBorder || isCenter;
+                    }
+                }
+            };
+            drawFinder(0, 0);
+            drawFinder(0, size - 7);
+            drawFinder(size - 7, 0);
+
+            // Детерміноване заповнення даних на основі URL
+            let hash = 2166136261;
+            for (let i = 0; i < text.length; i++) {
+                hash ^= text.charCodeAt(i);
+                hash = Math.imul(hash, 16777619);
+            }
+
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    const inTopLeft = r < 8 && c < 8;
+                    const inTopRight = r < 8 && c >= size - 8;
+                    const inBottomLeft = r >= size - 8 && c < 8;
+                    if (inTopLeft || inTopRight || inBottomLeft) continue;
+
+                    const charCode = text.charCodeAt((r * size + c) % Math.max(1, text.length)) || 42;
+                    const bit = ((hash >>> ((r + c) % 24)) ^ (charCode * (r + 3) + c * 7)) & 1;
+                    grid[r][c] = bit === 1;
+                }
+            }
+
+            const cell = 6;
+            const dim = size * cell;
+            let rects = '';
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (grid[r][c]) {
+                        rects += `<rect x="${c * cell}" y="${r * cell}" width="${cell}" height="${cell}" fill="#111111"/>`;
+                    }
+                }
+            }
+            return `<svg width="${dim}" height="${dim}" viewBox="0 0 ${dim} ${dim}" xmlns="http://www.w3.org/2000/svg"><rect width="${dim}" height="${dim}" fill="#ffffff"/>${rects}</svg>`;
+        }
+
+        // =========================================================================
+        // 3. КЛАСИЧНІ ВЕКТОРНІ ФІГУРИ (ТОЧНО ЯК НА ФОТО SMYSLOV / KASPAROV)
+        // =========================================================================
+        function getPieceSVG(type, color) {
+            return THEME === 'mc' ? getPixelPieceSVG(type, color) : getPieceSVGClassic(type, color);
+        }
+        const PIXEL_SIL = {"p": ["....XX....", "...XXXX...", "...XXXX...", "....XX....", "...XXXX...", "...XXXX...", "....XX....", "...XXXX...", "..XXXXXX..", ".XXXXXXXX.", ".XXXXXXXX."], "r": [".XX.XX.XX.", ".XXXXXXXX.", "..XXXXXX..", "..XXXXXX..", "..XXXXXX..", "..XXXXXX..", "..XXXXXX..", ".XXXXXXXX.", ".XXXXXXXX.", "XXXXXXXXXX", "XXXXXXXXXX"], "b": ["....XX....", "...XXXX...", "..XXXXXX..", "..XXX.XX..", "..XXXXXX..", "...XXXX...", "....XX....", "...XXXX...", "..XXXXXX..", ".XXXXXXXX.", ".XXXXXXXX."], "n": ["..XX......", "..XXXX....", ".XXXXXXX..", "XXXXXXXXX.", "XXX.XXXXXX", "XXXXXXXXXX", ".XXXXXXXXX", "...XXXXXXX", "..XXXXXXXX", ".XXXXXXXXX", "XXXXXXXXXX"], "q": ["X.X.XX.X.X", "XXXXXXXXXX", ".XXXXXXXX.", "..XXXXXX..", "...XXXX...", "...XXXX...", "..XXXXXX..", "..XXXXXX..", ".XXXXXXXX.", ".XXXXXXXX.", "XXXXXXXXXX"], "k": ["....XX....", "..XXXXXX..", "....XX....", ".XXXXXXXX.", ".XXXXXXXX.", "..XXXXXX..", "...XXXX...", "..XXXXXX..", ".XXXXXXXX.", ".XXXXXXXX.", "XXXXXXXXXX"]};
+        const PIXEL_CACHE = {};
+        function getPixelPieceSVG(type, color) {
+            const key = type + color;
+            if (PIXEL_CACHE[key]) return PIXEL_CACHE[key];
+            const rows = PIXEL_SIL[type], H = rows.length, W = 10;
+            const pal = color === 'w'
+                ? { main: '#f3efe2', shade: '#b4ad96', hi: '#ffffff', line: '#161616' }
+                : { main: '#4b4f59', shade: '#272a31', hi: '#7a808e', line: '#050505' };
+            const body = (x, y) => x >= 0 && y >= 0 && x < W && y < H && rows[y][x] === 'X';
+            let r = '';
+            for (let y = -1; y <= H; y++) {
+                for (let x = -1; x <= W; x++) {
+                    let c = null;
+                    if (body(x, y)) {
+                        if (!body(x + 1, y) || !body(x, y + 1)) c = pal.shade;
+                        else if (!body(x - 1, y) || !body(x, y - 1)) c = pal.hi;
+                        else c = pal.main;
+                    } else if (body(x + 1, y) || body(x - 1, y) || body(x, y + 1) || body(x, y - 1)) {
+                        c = pal.line;
+                    }
+                    if (c) r += `<rect x="${x + 1}" y="${y + 1}" width="1.02" height="1.02" fill="${c}"/>`;
+                }
+            }
+            return (PIXEL_CACHE[key] = `<svg viewBox="0 0 ${W + 2} ${H + 2}" class="piece-svg" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${r}</svg>`);
+        }
+
+        let THEME = 'mc';
+        try { THEME = localStorage.getItem('chess_theme') === 'classic' ? 'classic' : 'mc'; } catch (_) {}
+        function setTheme(t) {
+            THEME = t === 'classic' ? 'classic' : 'mc';
+            try { localStorage.setItem('chess_theme', THEME); } catch (_) {}
+            document.documentElement.dataset.theme = THEME;
+            const meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', THEME === 'mc' ? '#3b2a17' : '#141713');
+            document.querySelectorAll('[data-theme-label]').forEach(b => { b.textContent = THEME === 'mc' ? '⛏️ Minecraft' : '♞ Класика'; });
+            renderChessBoard();
+        }
+        function initTheme() {
+            document.querySelectorAll('.theme-toggle').forEach(b => b.addEventListener('click', () => setTheme(THEME === 'mc' ? 'classic' : 'mc')));
+            setTheme(THEME);
+        }
+
+        // Екран не гасне під час партії
+        let wakeLock = null;
+        async function updateWakeLock(want) {
+            try {
+                if (want && !wakeLock && navigator.wakeLock) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    wakeLock.addEventListener('release', () => { wakeLock = null; });
+                } else if (!want && wakeLock) {
+                    await wakeLock.release();
+                    wakeLock = null;
+                }
+            } catch (_) { wakeLock = null; }
+        }
+
+        function getPieceSVGClassic(type, color) {
+            const isWhite = color === 'w';
+            const fill = isWhite ? '#ffffff' : '#0b0b0b';
+            const stroke = '#0b0b0b';
+            const detail = isWhite ? '#0b0b0b' : '#ffffff';
+
+            const svgs = {
+                p: `<svg viewBox="0 0 45 45" class="piece-svg">
+                    <path d="M 22.5,9 C 19.5,9 17,11.5 17,14.5 C 17,16.6 18.2,18.4 20,19.3 C 17.5,20.6 16,23.2 16,26.2 C 16,28.5 17.1,30.5 18.8,31.8 C 14.5,33.2 11.5,36.8 11.5,40.5 L 33.5,40.5 C 33.5,36.8 30.5,33.2 26.2,31.8 C 27.9,30.5 29,28.5 29,26.2 C 29,23.2 27.5,20.6 25,19.3 C 26.8,18.4 28,16.6 28,14.5 C 28,11.5 25.5,9 22.5,9 z"
+                        fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                    ${!isWhite ? `<path d="M 14,38.5 L 31,38.5 M 17.5,31.5 L 27.5,31.5" stroke="${detail}" stroke-width="1.3" stroke-linecap="round"/>` : ''}
+                </svg>`,
+                r: `<svg viewBox="0 0 45 45" class="piece-svg">
+                    <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M 9,39 L 36,39 L 36,36 L 9,36 L 9,39 z"/>
+                        <path d="M 12,36 L 12,32 L 33,32 L 33,36 L 12,36 z"/>
+                        <path d="M 11,14 L 11,9 L 15,9 L 15,11 L 20,11 L 20,9 L 25,9 L 25,11 L 30,11 L 30,9 L 34,9 L 34,14"/>
+                        <path d="M 34,14 L 31,17 L 14,17 L 11,14"/>
+                        <path d="M 31,17 L 31,29.5 L 14,29.5 L 14,17"/>
+                        <path d="M 31,29.5 L 32.5,32 L 12.5,32 L 14,29.5"/>
+                    </g>
+                    ${!isWhite ? `<path d="M 13,35.5 L 32,35.5 M 14.5,29.5 L 30.5,29.5 M 14.5,17 L 30.5,17" stroke="${detail}" stroke-width="1.3" stroke-linecap="round"/>` : ''}
+                </svg>`,
+                n: `<svg viewBox="0 0 45 45" class="piece-svg">
+                    <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18"/>
+                        <path d="M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31 C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30 C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10"/>
+                    </g>
+                    <circle cx="14.5" cy="15.5" r="1.3" fill="${detail}"/>
+                    ${!isWhite ? `<path d="M 24.5,10.5 C 31,12.5 35.5,19 35.5,36.5" fill="none" stroke="${detail}" stroke-width="1.3" stroke-linecap="round"/>` : ''}
+                </svg>`,
+                b: `<svg viewBox="0 0 45 45" class="piece-svg">
+                    <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M 9,36 C 12.39,35.03 19.11,36.43 22.5,34 C 25.89,36.43 32.61,35.03 36,36 C 36,36 37.65,36.54 39,38 C 38.32,38.97 37.35,38.99 36,38.5 C 32.61,37.53 25.89,38.96 22.5,37.5 C 19.11,38.96 12.39,37.53 9,38.5 C 7.646,38.99 6.677,38.97 6,38 C 7.354,36.06 9,36 9,36 z"/>
+                        <path d="M 15,32 C 17.5,34.5 27.5,34.5 30,32 C 30.5,30.5 30,30 30,30 C 30,27.5 27.5,26 27.5,26 C 33,24.5 33.5,14.5 22.5,10.5 C 11.5,14.5 12,24.5 17.5,26 C 17.5,26 15,27.5 15,30 C 15,30 14.5,30.5 15,32 z"/>
+                        <circle cx="22.5" cy="8" r="2.2"/>
+                    </g>
+                    <path d="M 17.5,26 L 27.5,26 M 15,30 L 30,30 M 22.5,15.5 L 22.5,20.5 M 20,18 L 25,18" stroke="${detail}" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>`,
+                q: `<svg viewBox="0 0 45 45" class="piece-svg">
+                    <g fill="${fill}" stroke="${stroke}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="6" cy="12" r="2.2"/>
+                        <circle cx="14" cy="9" r="2.2"/>
+                        <circle cx="22.5" cy="8" r="2.2"/>
+                        <circle cx="31" cy="9" r="2.2"/>
+                        <circle cx="39" cy="12" r="2.2"/>
+                        <path d="M 9,26 C 17.5,24.5 30,24.5 36,26 L 38.5,13.5 L 31,25 L 30.7,10.9 L 25.5,24.5 L 22.5,10 L 19.5,24.5 L 14.3,10.9 L 14,25 L 6.5,13.5 L 9,26 z"/>
+                        <path d="M 9,26 C 9,28 10.5,28 11.5,30 C 12.5,31.5 12.5,31 12,33.5 C 10.5,34.5 10.5,36 10.5,36 C 9,37.5 11,38.5 11,38.5 C 17.5,39.5 27.5,39.5 34,38.5 C 34,38.5 35.5,37.5 34,36 C 34,36 34.5,34.5 33,33.5 C 32.5,31 32.5,31.5 33.5,30 C 34.5,28 36,28 36,26 C 27.5,24.5 17.5,24.5 9,26 z"/>
+                    </g>
+                    <path d="M 11.5,30 C 15,29 30,29 33.5,30 M 12,33.5 C 18,32.5 27,32.5 33,33.5" fill="none" stroke="${detail}" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>`,
+                k: `<svg viewBox="0 0 45 45" class="piece-svg">
+                    <g fill="${fill}" stroke="${stroke}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M 22.5,11.63 L 22.5,6" fill="none"/>
+                        <path d="M 20,8 L 25,8" fill="none"/>
+                        <path d="M 22.5,25 C 22.5,25 27,17.5 25.5,14.5 C 25.5,14.5 24.5,12 22.5,12 C 20.5,12 19.5,14.5 19.5,14.5 C 18,17.5 22.5,25 22.5,25"/>
+                        <path d="M 11.5,37 C 17,40.5 27,40.5 32.5,37 L 32.5,30 C 32.5,30 41.5,25.5 38.5,19.5 C 34.5,13 25,16 22.5,23.5 L 22.5,27 L 22.5,23.5 C 19,16 9.5,13 6.5,19.5 C 3.5,25.5 11.5,29.5 11.5,29.5 L 11.5,37 z"/>
+                    </g>
+                    <path d="M 11.5,30 C 17,27 27,27 32.5,30 M 11.5,33.5 C 17,30.5 27,30.5 32.5,33.5 M 11.5,37 C 17,34 27,34 32.5,37" fill="none" stroke="${detail}" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>`
+            };
+            return svgs[type] || '';
+        }
+
+        // =========================================================================
+        // 4. ВИЗНАЧЕННЯ ПРИСТРОЮ ТА ЗВУКОВИЙ СИНТЕЗАТОР (Web Audio API)
+        // =========================================================================
+        function detectDeviceInfo() {
+            const ua = navigator.userAgent || '';
+            const width = window.innerWidth;
+            if (/iPad|Tablet|PlayBook|Silk/i.test(ua) || (width >= 640 && width <= 1024 && 'ontouchstart' in window)) {
+                return { icon: '📟', label: 'Планшет' };
+            }
+            if (/Mobi|Android|iPhone|iPod/i.test(ua) || width < 640) {
+                return { icon: '📱', label: 'Телефон' };
+            }
+            return { icon: '💻', label: 'ПК' };
+        }
+
+        function playMoveSound(isCapture = false) {
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) return;
+                const ctx = (window.__ac = window.__ac || new AudioCtx());
+                if (ctx.state === 'suspended') ctx.resume();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = isCapture ? 'triangle' : 'sine';
+                osc.frequency.setValueAtTime(isCapture ? 240 : 420, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(isCapture ? 90 : 180, ctx.currentTime + 0.08);
+                gain.gain.setValueAtTime(0.15, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.09);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.09);
+            } catch (_) { /* ігноруємо, якщо звук заблоковано браузером */ }
+        }
+
+        // =========================================================================
+        // 5. СТАН ТУРНІРУ ТА HYBRID SYNC (Firebase Firestore + BroadcastChannel)
+        // =========================================================================
+        const STORAGE_KEY = 'chess_olympic_tournament_v2';
+        const CUSTOM_FB_KEY = 'chess_custom_firebase_cfg';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'chess-tournament-ua';
+        let serverOffset = 0; // різниця між годинником сервера та пристрою
+        function nowMs() { return Date.now() + serverOffset; }
+
+        let firebaseConfig = null;
+        try {
+            const fb = (window.APP_CONFIG || {}).firebase;
+            if (fb && fb.apiKey && !String(fb.apiKey).startsWith('ВСТАВТЕ')) {
+                firebaseConfig = fb;
+            } else if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                firebaseConfig = JSON.parse(__firebase_config);
+            } else {
+                const savedCustom = localStorage.getItem(CUSTOM_FB_KEY);
+                if (savedCustom) firebaseConfig = JSON.parse(savedCustom);
+            }
+        } catch (_) { firebaseConfig = null; }
+
+        let db = null;
+        let auth = null;
+        let tournamentDocRef = null;
+        let syncMode = 'LOCAL'; // 'FIREBASE' | 'LOCAL'
+        let broadcastChannel = null;
+
+        try {
+            if ('BroadcastChannel' in window) {
+                broadcastChannel = new BroadcastChannel('chess_tournament_channel_ua');
+            }
+        } catch (_) { /* fallback на storage event */ }
+
+        // Локальна сесія поточного користувача
+        let userRole = null; // 'player' | 'admin' | null
+        let myPlayerId = null;
+        let spectatingMatchId = null;
+        let lastAnnouncedMatchSignature = '';
+        let lastMoveHistoryLength = 0;
+
+        // Початковий стан турніру
+        function createDefaultTournamentState() {
+            return {
+                version: 1,
+                status: 'lobby', // 'lobby' | 'playing' | 'finished'
+                settings: {
+                    gameTimeMin: 5,
+                    gamesPerMatch: 1,
+                    waitTimeSec: 15
+                },
+                roster: [],
+                stats: {},
+                history: [],
+                lastChampion: null,
+                players: [], // { id, name, deviceIcon, deviceLabel, isBot, eliminated, joinedAt, lastSeen }
+                rounds: [],  // [{ roundIndex, name, matches: [...] }]
+                thirdPlaceMatch: null,
+                podium: { first: null, second: null, third: null },
+                updatedAt: nowMs()
+            };
+        }
+
+        let tournamentState = createDefaultTournamentState();
+
+        // Шаховий екземпляр та UI-змінні
+        let chessInstance = new AutonomousChess();
+        let selectedSquare = null;
+        let botMoveTimeout = null;
+        let lastBotMoveKey = '';
+        const pendingWins = new Set();
+        let ensuringAdmin = false;
+        async function ensureAdminPlayer() {
+            if (userRole !== 'admin' || myPlayerId || ensuringAdmin || tournamentState.status === 'playing') return;
+            ensuringAdmin = true;
+            try {
+                const devInfo = detectDeviceInfo();
+                let joined = null;
+                await mutateTournamentState((state) => {
+                    joined = null;
+                    if (state.status === 'playing') return false;
+                    let ex = state.players.find(p => p.name === ADMIN_NAME);
+                    if (!ex) {
+                        if (state.players.length >= 10) return false;
+                        ex = { id: generateId('plr'), deviceId: getDeviceId(), name: ADMIN_NAME, isAdmin: true, isGuest: false,
+                               deviceIcon: devInfo.icon, deviceLabel: devInfo.label, isBot: false, eliminated: false, joinedAt: nowMs(), lastSeen: nowMs() };
+                        state.players.push(ex);
+                    }
+                    ex.isAdmin = true;
+                    joined = ex;
+                });
+                if (joined) {
+                    myPlayerId = joined.id;
+                    saveSession();
+                    if (!tournamentState.players.some(p => p.id === joined.id)) {
+                        tournamentState = { ...tournamentState, players: [...tournamentState.players, joined] };
+                    }
+                    onStateUpdated();
+                }
+            } finally { ensuringAdmin = false; }
+        }
+
+        function recordTournamentResult(state, champion, runnerUp, thirdPlace) {
+            state.stats = state.stats || {};
+            const S = (name) => (state.stats[name] = state.stats[name] || { played: 0, champion: 0, second: 0, third: 0, matchWins: 0, matchLosses: 0, gameWins: 0, gameLosses: 0 });
+            (state.players || []).filter(p => !p.isBot).forEach(p => { S(p.name).played++; });
+            const all = [...state.rounds.flatMap(r => r.matches), ...(state.thirdPlaceMatch ? [state.thirdPlaceMatch] : [])];
+            all.forEach(m => {
+                if (m.isBye || !m.player1 || !m.player2) return;
+                [[m.player1, m.score1, m.score2], [m.player2, m.score2, m.score1]].forEach(([p, mine, theirs]) => {
+                    if (p.isBot) return;
+                    const st = S(p.name);
+                    st.gameWins += mine || 0;
+                    st.gameLosses += theirs || 0;
+                    if (m.winnerId === p.id) st.matchWins++; else if (m.winnerId) st.matchLosses++;
+                });
+            });
+            if (champion && !champion.isBot) S(champion.name).champion++;
+            if (runnerUp && !runnerUp.isBot) S(runnerUp.name).second++;
+            if (thirdPlace && !thirdPlace.isBot) S(thirdPlace.name).third++;
+            if (champion) state.lastChampion = champion.name;
+            state.history = [{ date: nowMs(), champion: champion ? champion.name : null, second: runnerUp ? runnerUp.name : null, third: thirdPlace ? thirdPlace.name : null },
+                             ...(state.history || [])].slice(0, 30);
+        }
+
+        function renderChampionBanner() {
+            const n = tournamentState.lastChampion || '';
+            ['champion-login', 'champion-dash'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el || el.dataset.v === n) return;
+                el.dataset.v = n;
+                if (n) { el.textContent = `🏆 Чемпіон: ${n}`; el.classList.remove('hidden'); }
+                else { el.textContent = ''; el.classList.add('hidden'); }
+            });
+        }
+
+        function openStatsModal() {
+            const stats = tournamentState.stats || {};
+            const rows = Object.entries(stats).sort((a, b) => b[1].champion - a[1].champion || b[1].second - a[1].second || b[1].matchWins - a[1].matchWins);
+            const body = document.getElementById('stats-body');
+            const th = 'px-2 py-2 text-left text-xs uppercase text-gray-400 font-semibold';
+            const td = 'px-2 py-2 text-gray-200';
+            if (!rows.length) {
+                body.innerHTML = '<p class="text-gray-400 text-sm">Статистики поки немає. Вона зʼявиться після першого завершеного турніру.</p>';
+            } else {
+                body.innerHTML = '<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-[#363e33]">' +
+                    `<th class="${th}">Гравець</th><th class="${th}">🏆 Перемог</th><th class="${th}">2 місце</th><th class="${th}">3 місце</th><th class="${th}">Турнірів</th><th class="${th}">Матчі (В/П)</th><th class="${th}">Партії (В/П)</th>` +
+                    '</tr></thead><tbody>' +
+                    rows.map(([name, v]) => `<tr class="border-b border-[#2a3128]"><td class="${td} font-semibold text-white">${name}</td><td class="${td} text-amber-300 font-bold">${v.champion}</td><td class="${td}">${v.second}</td><td class="${td}">${v.third}</td><td class="${td}">${v.played}</td><td class="${td}">${v.matchWins} / ${v.matchLosses}</td><td class="${td}">${v.gameWins} / ${v.gameLosses}</td></tr>`).join('') +
+                    '</tbody></table></div>';
+                const hist = tournamentState.history || [];
+                if (hist.length) {
+                    body.innerHTML += '<h4 class="mt-5 mb-2 text-sm font-bold text-white">Історія турнірів</h4><div class="space-y-1">' +
+                        hist.map(h => `<div class="text-sm text-gray-300"><span class="text-gray-500">${new Date(h.date).toLocaleDateString(LANG === 'en' ? 'en-GB' : 'uk-UA')}</span> — 🏆 ${h.champion || '—'}${h.second ? ' • 🥈 ' + h.second : ''}${h.third ? ' • 🥉 ' + h.third : ''}</div>`).join('') + '</div>';
+                }
+            }
+            document.getElementById('modal-stats').classList.remove('hidden');
+        }
+        let lastPosKey = '';
+        const ADMIN_NAME = 'Папуля';
+        const DEFAULT_ROSTER = ['Папуля', 'Мамуля', 'Сева', 'Катя', 'Оксана', 'Оді'];
+        function getRoster() {
+            const r = (tournamentState.roster && tournamentState.roster.length) ? [...tournamentState.roster] : [...DEFAULT_ROSTER];
+            if (!r.includes(ADMIN_NAME)) r.unshift(ADMIN_NAME);
+            return r;
+        }
+        function renderRosterChips() {
+            const sel = document.getElementById('login-select');
+            if (!sel) return;
+            const names = getRoster();
+            const key = names.join('|');
+            if (sel.dataset.key === key) return;
+            const prev = sel.value;
+            sel.innerHTML = '<option value="" disabled>Оберіть гравця</option>' +
+                names.map(n => `<option value="${n}">${n}</option>`).join('') +
+                '<option value="__guest__">Гість</option>';
+            sel.dataset.key = key;
+            sel.value = [...sel.options].some(o => o.value === prev) ? prev : '';
+            updateLoginFields();
+        }
+        function renderRosterAdminList() {
+            const box = document.getElementById('roster-admin-list');
+            if (!box) return;
+            box.innerHTML = getRoster().map(n => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#20251e] border border-[#384135] text-xs text-gray-200">${n}${n === ADMIN_NAME ? '' : `<button type="button" data-roster-remove="${n}" class="text-gray-500 hover:text-red-400 cursor-pointer">✕</button>`}</span>`).join('');
+        }
+
+        // ===== Переклад інтерфейсу (UA / EN) =====
+        const EN = {"♞ Класика":"♞ Classic","QR / Посилання":"QR / Link","Змінити дизайн":"Change design", "📊 Статистика перемог": "📊 Win statistics", "Статистика перемог": "Win statistics", "Статистики поки немає. Вона зʼявиться після першого завершеного турніру.": "No statistics yet. They will appear after the first finished tournament.", "🏆 Перемог": "🏆 Wins", "Турнірів": "Tournaments", "Матчі (В/П)": "Matches (W/L)", "Партії (В/П)": "Games (W/L)", "Історія турнірів": "Tournament history", "Зараз хід суперника": "It's your opponent's turn", "Ви дивитеся партію як глядач": "You are watching this game as a spectator", "Ваш король під шахом — зробіть хід, який його захистить": "Your king is in check — make a move that protects it", "Ця фігура зараз не може ходити (заблокована або захищає короля)": "This piece cannot move right now (blocked or protecting the king)", "1 гра": "1 game", "1 гра (на вибування)": "1 game (knockout)", "1 місце • Чемпіон": "1st place • Champion", "2 місце": "2nd place", "3 місце": "3rd place", "PIN адміністратора": "Admin PIN", "Поділитися з іншим пристроєм": "Share with another device", "Введіть ваше ім'я": "Enter your name", "Ім'я нового гравця": "New player's name", "Адмін-панель": "Admin panel", "Адміністратор": "Administrator", "Ваш хід": "Your move", "Вийти": "Log out", "Відскануйте QR-код камерою телефону/планшета або скопіюйте посилання для входу гравців.": "Scan the QR code with a phone/tablet camera or copy the link so players can join.", "Гравець": "Player", "Гість": "Guest", "Хто ви?": "Who are you?", "Оберіть гравця": "Select player", "Увійти": "Enter", "СІМЕЙНИЙ ШАХОВИЙ ТУРНІР": "FAMILY CHESS TOURNAMENT", "Для онлайн-гри з різних телефонів та ПК при розміщенні файлу на власному хостингу (наприклад, GitHub Pages) вставте JSON-конфігурацію вашого вебдодатку Firebase:": "To play online from different phones and PCs when hosting the file yourself (e.g. GitHub Pages), paste the JSON config of your Firebase web app:", "До 2 перемог (з 3 ігор)": "First to 2 wins (best of 3)", "До 3 перемог (з 5 ігор)": "First to 3 wins (best of 5)", "Копіювати": "Copy", "Кількість ігор": "Number of games", "Налаштування та керування турніром": "Tournament settings and controls", "Оберіть фігуру для перетворення:": "Choose a piece to promote to:", "Оберіть фігуру на дошці для ходу": "Select a piece on the board to move", "Олімпійська система (до 10 гравців)": "Knockout system (up to 10 players)", "Онлайн": "Online", "Оновлення турніру": "Tournament update", "Останні ходи:": "Recent moves:", "Очікування": "Waiting", "Очікування учасників": "Waiting for players", "Очікування формування пар": "Waiting for pairings", "Партія розпочалася...": "The game has started...", "Перейти до гри / таблиці →": "Go to game / bracket →", "Підготовка до старту партії": "Get ready, the game is about to start", "Підключення пристроїв": "Connect devices", "Підключити": "Connect", "Сформована турнірна таблиця": "Tournament bracket", "Турнір завершено": "Tournament finished", "Турнірна таблиця та результати пар": "Bracket and match results", "Учасники турніру": "Tournament players", "Час гри": "Game time", "Шаховий Турнір": "Chess Tournament", "Сімейний шаховий турнір": "Family Chess Tournament", "← Повернутися до таблиці": "← Back to bracket", "⏱ Час гри (хвилин на гравця)": "⏱ Game time (minutes per player)", "⏳ Час на очікування (секунд)": "⏳ Wait time (seconds)", "⚔️ Кількість ігор у матчі": "⚔️ Games per match", "🌐 Хмарна синхронізація (GitHub Pages)": "🌐 Cloud sync (GitHub Pages)", "🎲 Сформувати пари / Старт турніру": "🎲 Draw pairings / Start tournament", "🏆 Переможці турніру": "🏆 Tournament winners", "🏳 Здатися в цій партії": "🏳 Resign this game", "💡 Ви відкрили файл локально. Для гри між різними телефонами та ПК завантажте цей файл на безкоштовний хостинг (наприклад, GitHub Pages) або відкрийте кілька вкладок браузера.": "💡 You opened the file locally. To play between different phones and PCs, upload it to a free host (e.g. GitHub Pages) or open several browser tabs.", "💾 Зберегти налаштування": "💾 Save settings", "📊 Відкрити турнірну таблицю": "📊 Open tournament bracket", "📲 QR / Посилання": "📲 QR / Link", "🗑 Скинути турнір": "🗑 Reset tournament", "🤖 Додати тестового гравця": "🤖 Add test player", "👤 Створити нового гравця": "👤 Create a new player", "Додати": "Add", "Автопрохід (Bye)": "Bye (auto-advance)", "Бот": "Bot", "Вас видалено з турніру або турнір скинуто.": "You were removed from the tournament.", "Вибув": "Out", "Видалити": "Remove", "Відбірковий раунд": "Qualifying round", "Відкрити дошку": "Open board", "Дивитися": "Watch", "Додавати гравців можна лише до початку турніру!": "Players can only be added before the tournament starts!", "Досягнуто ліміт учасників (10 осіб)!": "Player limit reached (10)!", "Завершено": "Finished", "Зачекайте завершення таймера підготовки!": "Wait for the countdown to finish!", "Конфігурацію Firebase підключено!": "Firebase configuration connected!", "Лише цей пристрій (Firebase не підключено)": "This device only (Firebase not connected)", "Максимум 10 учасників у турнірі!": "Maximum 10 players in a tournament!", "Матч": "Match", "Матч за 3-тє місце": "3rd place match", "Матч завершено": "Match finished", "Налаштування турніру збережено!": "Tournament settings saved!", "Натисніть на свою фігуру, щоб зробити хід": "Tap one of your pieces to move", "Не вдалося синхронізуватися з сервером. Повторіть дію.": "Could not sync with the server. Please try again.", "Не визначено (менше 3 гравців)": "Not determined (fewer than 3 players)", "Невірний PIN адміністратора": "Wrong admin PIN", "Немає звʼязку з сервером. Перевірте інтернет.": "No connection to the server. Check your internet.", "Немає інтернету": "No internet", "Нічия! Призначається перегравання зі зміною кольору фігур.": "Draw! The game is replayed with colors swapped.", "Ознайомтеся з таблицею та підготуйтеся до партії": "Check the bracket and get ready for the game", "Оновлена турнірна таблиця": "Updated tournament bracket", "Оновлюється в реальному часі": "Updates in real time", "Очікування старту...": "Waiting to start...", "ПК": "PC", "Пари сформовано випадковим чином! Турнір розпочато!": "Pairings drawn at random! The tournament has started!", "Перевірте правильність JSON-обʼєкта Firebase!": "Check the Firebase JSON object!", "Планшет": "Tablet", "Посилання скопійовано в буфер обміну!": "Link copied to clipboard!", "Поточні пари та результати": "Current pairings and results", "Потрібно щонайменше 2 учасники для початку турніру!": "At least 2 players are needed to start!", "Проходить у наступний раунд": "Advances to the next round", "Півфінал (1/2)": "Semi-final (1/2)", "Після завершення партії": "After the game", "Режим Адміністратора • Повне керування": "Administrator mode • Full control", "Режим Гравця • Гра та турнірна таблиця": "Player mode • Game and bracket", "Режим перегляду партії": "Spectator mode", "Скопіюйте посилання вручну з поля вище.": "Copy the link manually from the field above.", "Суперник здався": "Opponent resigned", "Сформовано пари": "Pairings made", "Телефон": "Phone", "Турнір активний": "Tournament in progress", "Турнір повністю скинуто до початкового стану.": "Tournament has been fully reset.", "Турнір уже запущено! Натисніть «Скинути турнір», щоб почати заново.": "The tournament has already started! Press \"Reset tournament\" to start over.", "Турнір уже розпочався! Нові гравці зможуть увійти після скидання турніру.": "The tournament has already started! New players can join after a reset.", "Турнірна сітка": "Tournament bracket", "У грі": "In play", "Уже набрано максимум 10 учасників!": "Maximum of 10 players already reached!", "Усі партії завершено": "All games finished", "Фінал": "Final", "Хмарний онлайн • Синхронізовано": "Cloud online • Synced", "Час білих вичерпано!": "White's time is up!", "Час чорних вичерпано!": "Black's time is up!", "Чвертьфінал (1/4)": "Quarter-final (1/4)", "Шах і мат!": "Checkmate!", "⏳ Хід суперника": "⏳ Opponent's move", "● Іде гра": "● In progress", "⚠️ ШАХ! Ваш хід": "⚠️ CHECK! Your move", "🟢 Ваш хід": "🟢 Your move", "🥉 Матч за 3-тє місце": "🥉 3rd place match", "ВИ": "YOU", "Пари ще не сформовані.": "Pairings not made yet.", "Ще немає зареєстрованих гравців": "No players registered yet", "Турнірну сітку ще не сформовано": "The bracket has not been created yet", "Коли учасники введуть свої імена (від 2 до 10 осіб), адміністратор запустить випадкове жеребкування пар.": "Once the players have logged in (2 to 10), the administrator will start the random pairing draw.", "Таке ім'я вже є у списку. Оберіть себе зі списку.": "This name is already in the list. Pick yourself from the list.", "Такий гравець уже є": "This player already exists", "Гравець видалений зі списку": "Player removed from the list", "У списку може бути не більше 12 гравців": "The list can have at most 12 players", "Василь Смислов": "Vasily Smyslov", "Гаррі Каспаров": "Garry Kasparov", "Анатолій Карпов": "Anatoly Karpov", "Михайло Таль": "Mikhail Tal", "Магнус Карлсен": "Magnus Carlsen", "Боббі Фішер": "Bobby Fischer", "Хосе Капабланка": "José Capablanca", "Олександр Алехін": "Alexander Alekhine", "Пауль Керес": "Paul Keres", "Руслан Пономарьов": "Ruslan Ponomariov"};
+        const EN_PATTERNS = [
+[/^🏆 Чемпіон: (.+)$/,'🏆 Champion: $1'],
+[/^Рахунок: (.+) \(Гра (.+)\)$/,'Score: $1 (Game $2)'],[/^Рахунок: (.+)$/,'Score: $1'],[/^Раунд (\d+)$/,'Round $1'],
+[/^(\d+) хв$/,'$1 min'],[/^(\d+) сек$/,'$1 sec'],[/^(\d+) с$/,'$1 s'],[/^З (\d+) ігор$/,'Best of $1'],
+[/^Переміг: (.+)$/,'Winner: $1'],[/^Хід білих \((.+)\)$/,'White to move ($1)'],[/^Хід чорних \((.+)\)$/,'Black to move ($1)'],
+[/^Очікуємо хід: (.+)$/,'Waiting for: $1'],[/^(.+) — Турнірна таблиця$/,'$1 — Bracket'],[/^Вітаємо в турнірі, (.+)!$/,'Welcome to the tournament, $1!'],
+[/^Додано учасника: (.+)$/,'Player added: $1'],[/^Гравця додано: (.+)$/,'Player added: $1'],[/^Матч завершено! (.+)$/,'Match over! $1'],
+[/^Партію завершено \((.+)\)\. Починається гра №(\d+)!$/,'Game over ($1). Game #$2 is starting!'],[/^Шахіст #(\d+)$/,'Player #$1']
+];
+        const EN_NAMES = [['Папуля', 'Dad'], ['Мамуля', 'Mom'], ['Сева', 'Seva'], ['Катя', 'Katya'], ['Оксана', 'Oksana'], ['Оді', 'Odi'], ['Гість', 'Guest']];
+        const CYR = 'А-Яа-яІіЇїЄєҐґ';
+        const NAME_RES = EN_NAMES.map(([u, e]) => [new RegExp('(^|[^' + CYR + "'])" + u + '(?![' + CYR + '])', 'g'), e]);
+        let LANG = 'uk';
+        try { LANG = localStorage.getItem('chess_lang') || (/^en/i.test(navigator.language || '') ? 'en' : 'uk'); } catch (_) {}
+        function trStr(key) {
+            if (Object.prototype.hasOwnProperty.call(EN, key)) return EN[key];
+            for (const [re, tpl] of EN_PATTERNS) {
+                const m = key.match(re);
+                if (m) return tpl.replace(/\$(\d)/g, (_, i) => trStr(m[i]));
+            }
+            return key;
+        }
+        function trFull(text) {
+            let t = trStr(text);
+            for (const [re, e] of NAME_RES) t = t.replace(re, '$1' + e);
+            return t;
+        }
+        const i18nRec = new WeakMap();
+        function i18nText(node) {
+            const v = node.nodeValue;
+            const rec = i18nRec.get(node);
+            if (rec && v === rec.tr) {
+                if (LANG !== 'en') { node.nodeValue = rec.orig; i18nRec.delete(node); }
+                return;
+            }
+            if (rec) i18nRec.delete(node);
+            if (LANG !== 'en') return;
+            const key = v.replace(/\s+/g, ' ').trim();
+            if (!key) return;
+            const t = trFull(key);
+            if (t === key) return;
+            const out = v.match(/^\s*/)[0] + t + v.match(/\s*$/)[0];
+            i18nRec.set(node, { orig: v, tr: out });
+            node.nodeValue = out;
+        }
+        function i18nAttrs(el) {
+            if (!el.getAttribute) return;
+            el.__i18n = el.__i18n || {};
+            for (const a of ['placeholder', 'title']) {
+                if (!el.hasAttribute(a)) continue;
+                const v = el.getAttribute(a);
+                const rec = el.__i18n[a];
+                if (rec && v === rec.tr) {
+                    if (LANG !== 'en') { el.setAttribute(a, rec.orig); delete el.__i18n[a]; }
+                    continue;
+                }
+                if (rec) delete el.__i18n[a];
+                if (LANG !== 'en') continue;
+                const t = trFull(v.replace(/\s+/g, ' ').trim());
+                if (t !== v) { el.__i18n[a] = { orig: v, tr: t }; el.setAttribute(a, t); }
+            }
+        }
+        function i18nWalk(root) {
+            if (root.nodeType === 3) { i18nText(root); return; }
+            if (root.nodeType !== 1) return;
+            const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+            let n = root;
+            do {
+                if (n.nodeType === 3) { if (!/^(SCRIPT|STYLE)$/.test(n.parentNode.nodeName)) i18nText(n); }
+                else i18nAttrs(n);
+            } while ((n = w.nextNode()));
+        }
+        let i18nObs = null;
+        const I18N_OPTS = { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['placeholder', 'title'] };
+        function i18nApply(fn) {
+            if (i18nObs) i18nObs.disconnect();
+            try { fn(); } finally { if (i18nObs) i18nObs.observe(document.body, I18N_OPTS); }
+        }
+        function setLang(l) {
+            LANG = l === 'en' ? 'en' : 'uk';
+            try { localStorage.setItem('chess_lang', LANG); } catch (_) {}
+            document.documentElement.lang = LANG;
+            document.title = LANG === 'en' ? 'Family Chess Tournament' : 'Сімейний шаховий турнір';
+            document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === LANG));
+            i18nApply(() => i18nWalk(document.body));
+        }
+        function initI18n() {
+            i18nObs = new MutationObserver((muts) => {
+                if (LANG !== 'en') return;
+                i18nApply(() => {
+                    for (const m of muts) {
+                        if (m.type === 'childList') m.addedNodes.forEach(i18nWalk);
+                        else if (m.type === 'characterData') i18nText(m.target);
+                        else if (m.type === 'attributes') i18nAttrs(m.target);
+                    }
+                });
+            });
+            document.querySelectorAll('.lang-btn').forEach(b => b.addEventListener('click', () => setLang(b.dataset.lang)));
+            setLang(LANG);
+        }
+        let sessionEnteredAt = 0;
+        const SESSION_KEY = 'chess_session';
+
+        function getDeviceId() {
+            let id = null;
+            try { id = localStorage.getItem('chess_device_id'); } catch (_) {}
+            if (!id) {
+                id = generateId('dev');
+                try { localStorage.setItem('chess_device_id', id); } catch (_) {}
+            }
+            return id;
+        }
+        function cleanName(v) { return String(v || '').replace(/[<>&"'`\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 26); }
+        function saveSession() {
+            try {
+                if (userRole) localStorage.setItem(SESSION_KEY, JSON.stringify({ role: userRole, playerId: myPlayerId }));
+                else localStorage.removeItem(SESSION_KEY);
+            } catch (_) {}
+        }
+        function restoreSession() {
+            try {
+                const sess = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+                if (!sess) return;
+                if (sess.role === 'admin') { enterDashboard('admin', tournamentState.players.find(pl => pl.id === sess.playerId) || null); return; }
+                const p = tournamentState.players.find(pl => pl.id === sess.playerId);
+                if (p) enterDashboard('player', p);
+            } catch (_) {}
+        }
+        function makeQR(url) {
+            try {
+                const qr = qrcode(0, 'M');
+                qr.addData(url);
+                qr.make();
+                return qr.createSvgTag(5, 0);
+            } catch (_) { return generateAutonomousQRSVG(url); }
+        }
+        
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const toast = document.createElement('div');
+            const colors = {
+                info: 'bg-[#232a20] border-[#739552] text-white',
+                success: 'bg-emerald-900/95 border-emerald-500 text-emerald-100',
+                error: 'bg-red-900/95 border-red-500 text-red-100',
+                warn: 'bg-amber-900/95 border-amber-500 text-amber-100'
+            };
+            toast.className = `px-4 py-3 rounded-xl border shadow-xl text-xs sm:text-sm font-medium transition-all duration-300 pointer-events-auto ${colors[type] || colors.info}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(-8px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3400);
+        }
+
+        function formatClock(seconds) {
+            const s = Math.max(0, Math.floor(seconds));
+            const mins = Math.floor(s / 60);
+            const secs = s % 60;
+            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+
+        function generateId(prefix = 'id') {
+            return `${prefix}_${Math.random().toString(36).substring(2, 8)}_${nowMs().toString(36)}`;
+        }
+
+        function updateSyncBadge() {
+            const textEl = document.getElementById('sync-mode-text');
+            const dotEl = document.getElementById('sync-dot');
+            if (!textEl || !dotEl) return;
+            if (syncMode === 'FIREBASE') {
+                textEl.textContent = navigator.onLine ? 'Хмарний онлайн • Синхронізовано' : 'Немає інтернету';
+                dotEl.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+            } else {
+                textEl.textContent = 'Лише цей пристрій (Firebase не підключено)';
+                dotEl.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+            }
+        }
+
+        // Атомарне оновлення стану (підтримує і Firebase runTransaction, і миттєвий локальний режим)
+        async function mutateTournamentState(mutatorFn) {
+            if (firebaseConfig && syncMode !== 'FIREBASE') {
+                await Promise.race([syncReady, new Promise(r => setTimeout(r, 8000))]);
+                if (syncMode !== 'FIREBASE') { showToast('Немає звʼязку з сервером. Перевірте інтернет.', 'error'); return; }
+            }
+            if (syncMode === 'FIREBASE' && db && tournamentDocRef && auth?.currentUser) {
+                try {
+                    await runTransaction(db, async (transaction) => {
+                        const snap = await transaction.get(tournamentDocRef);
+                        const current = snap.exists() ? snap.data() : createDefaultTournamentState();
+                        const cloned = JSON.parse(JSON.stringify(current));
+                        const result = mutatorFn(cloned);
+                        if (result === false) return;
+                        cloned.updatedAt = nowMs();
+                        cloned.version = (cloned.version || 0) + 1;
+                        transaction.set(tournamentDocRef, JSON.parse(JSON.stringify(cloned)));
+                    });
+                    return;
+                } catch (err) {
+                    console.warn("Помилка транзакції Firebase:", err);
+                    showToast("Не вдалося синхронізуватися з сервером. Повторіть дію.", "error");
+                    return;
+                }
+            }
+
+            // Локальний режим + миттєва синхронізація між вкладками браузера
+            const cloned = JSON.parse(JSON.stringify(tournamentState));
+            const result = mutatorFn(cloned);
+            if (result === false) return;
+            cloned.updatedAt = nowMs();
+            cloned.version = (cloned.version || 0) + 1;
+            tournamentState = cloned;
+
+            try {
+                window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cloned));
+            } catch (_) { /* ігноруємо у приватному режимі */ }
+
+            if (broadcastChannel) {
+                try { broadcastChannel.postMessage({ type: 'STATE_SYNC', state: cloned }); } catch (_) {}
+            }
+            onStateUpdated();
+        }
+
+        let syncReady = Promise.resolve();
+        let resolveSync = () => {};
+        async function initHybridSync() {
+            syncReady = new Promise(r => { resolveSync = r; });
+            try { await _initHybridSync(); } finally { resolveSync(); }
+        }
+        async function _initHybridSync() {
+            // 1. Завантажуємо локальний кеш, якщо він вже є у браузері
+            try {
+                const cached = firebaseConfig ? null : window.localStorage.getItem(STORAGE_KEY);
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    if (parsed && parsed.players) {
+                        tournamentState = parsed;
+                        onStateUpdated();
+                    }
+                }
+            } catch (_) {}
+
+            // Слухачі міжвкладкової синхронізації
+            if (broadcastChannel) {
+                broadcastChannel.onmessage = (ev) => {
+                    if (ev.data?.type === 'STATE_SYNC' && ev.data.state) {
+                        tournamentState = ev.data.state;
+                        onStateUpdated();
+                    }
+                };
+            }
+            window.addEventListener('storage', (ev) => {
+                if (ev.key === STORAGE_KEY && ev.newValue) {
+                    try {
+                        tournamentState = JSON.parse(ev.newValue);
+                        onStateUpdated();
+                    } catch (_) {}
+                }
+            });
+
+            // 2. Підключаємо Firebase Firestore для крос-пристроєвої гри (телефон + планшет + ПК)
+            if (!firebaseConfig) {
+                syncMode = 'LOCAL';
+                updateSyncBadge();
+                return;
+            }
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                tournamentDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'tournament', 'active_state');
+                await runTransaction(db, async (tx) => {
+                    const snap = await tx.get(tournamentDocRef);
+                    if (!snap.exists()) tx.set(tournamentDocRef, JSON.parse(JSON.stringify(createDefaultTournamentState())));
+                });
+
+                // Синхронізація часу із сервером (щоб таймери на всіх пристроях збігалися)
+                try {
+                    const clockRef = doc(db, 'artifacts', appId, 'public', 'data', 'tournament', 'clock_' + getDeviceId());
+                    const t0 = Date.now();
+                    await setDoc(clockRef, { t: serverTimestamp() });
+                    const cs = await getDocFromServer(clockRef);
+                    const t1 = Date.now();
+                    const st = cs.data() && cs.data().t;
+                    if (st) serverOffset = st.toMillis() - (t0 + t1) / 2;
+                } catch (e) { console.warn('Не вдалося синхронізувати час', e); }
+
+                syncMode = 'FIREBASE';
+                updateSyncBadge();
+
+                let resolveFirst;
+                const firstSnap = new Promise(r => { resolveFirst = r; });
+                onSnapshot(tournamentDocRef, (snapshot) => {
+                    if (snapshot.exists()) {
+                        tournamentState = snapshot.data();
+                        onStateUpdated();
+                    }
+                    resolveFirst();
+                }, (err) => {
+                    console.warn("Помилка потоку Firebase:", err);
+                    resolveFirst();
+                });
+                await Promise.race([firstSnap, new Promise(r => setTimeout(r, 6000))]);
+            } catch (err) {
+                console.warn("Firebase недоступний, використовується автономний режим:", err);
+                syncMode = 'LOCAL';
+                updateSyncBadge();
+            }
+        }
+
+        // =========================================================================
+        // 6. ОЛІМПІЙСЬКА СИСТЕМА НА ВИБУВАННЯ (ДО 10 УЧАСНИКІВ)
+        // =========================================================================
+        function shuffleArray(array) {
+            const arr = [...array];
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        function getRoundName(numMatches, isFinalStage) {
+            if (isFinalStage || numMatches === 1) return 'Фінал';
+            if (numMatches === 2) return 'Півфінал (1/2)';
+            if (numMatches === 4) return 'Чвертьфінал (1/4)';
+            return 'Відбірковий раунд';
+        }
+
+        function createMatchObject(id, roundIndex, p1, p2, settings) {
+            const initTime = settings.gameTimeMin * 60;
+            const now = nowMs();
+            const p1IsWhite = Math.random() < 0.5;
+            const whitePlayer = p1IsWhite ? p1 : p2;
+            const blackPlayer = p1IsWhite ? p2 : p1;
+
+            if (!p1 || !p2) {
+                const autoWinner = p1 || p2;
+                return {
+                    id,
+                    roundIndex,
+                    player1: p1,
+                    player2: p2,
+                    whiteId: p1 ? p1.id : null,
+                    blackId: p2 ? p2.id : null,
+                    score1: p1 ? 1 : 0,
+                    score2: p2 ? 1 : 0,
+                    gameNumber: 1,
+                    fen: new AutonomousChess().fen(),
+                    pgnHistory: [],
+                    whiteTime: initTime,
+                    blackTime: initTime,
+                    lastMoveAt: now,
+                    waitUntil: now,
+                    status: 'finished',
+                    winnerId: autoWinner ? autoWinner.id : null,
+                    isBye: true
+                };
+            }
+
+            return {
+                id,
+                roundIndex,
+                player1: p1,
+                player2: p2,
+                whiteId: whitePlayer.id,
+                blackId: blackPlayer.id,
+                score1: 0,
+                score2: 0,
+                gameNumber: 1,
+                fen: new AutonomousChess().fen(),
+                pgnHistory: [],
+                whiteTime: initTime,
+                blackTime: initTime,
+                lastMoveAt: now + settings.waitTimeSec * 1000,
+                waitUntil: now + settings.waitTimeSec * 1000,
+                status: 'active',
+                winnerId: null,
+                isBye: false
+            };
+        }
+
+        async function startOlympicTournament() {
+            await ensureAdminPlayer();
+            if (tournamentState.players.length < 2) {
+                showToast('Потрібно щонайменше 2 учасники для початку турніру!', 'error');
+                return;
+            }
+            if (tournamentState.players.length > 10) {
+                showToast('Максимум 10 учасників у турнірі!', 'error');
+                return;
+            }
+
+            mutateTournamentState((state) => {
+                if (state.status === 'playing') return false;
+                state.thirdPlaceMatch = null;
+                state.podium = { first: null, second: null, third: null };
+                const shuffled = shuffleArray(state.players).map(p => ({ ...p, eliminated: false }));
+                const n = shuffled.length;
+
+                let bracketSize = 2;
+                while (bracketSize < n) bracketSize *= 2;
+
+                const byesCount = bracketSize - n;
+                const matchesCount = bracketSize / 2;
+                const firstRoundMatches = [];
+
+                let idx = 0;
+                for (let m = 0; m < matchesCount; m++) {
+                    if (m < byesCount) {
+                        const p1 = shuffled[idx++];
+                        firstRoundMatches.push(createMatchObject(`r0_m${m}`, 0, p1, null, state.settings));
+                    } else {
+                        const p1 = shuffled[idx++];
+                        const p2 = shuffled[idx++];
+                        firstRoundMatches.push(createMatchObject(`r0_m${m}`, 0, p1, p2, state.settings));
+                    }
+                }
+
+                state.status = 'playing';
+                state.players = shuffled;
+                state.rounds = [{
+                    roundIndex: 0,
+                    name: getRoundName(matchesCount, matchesCount === 1),
+                    matches: firstRoundMatches
+                }];
+                state.thirdPlaceMatch = null;
+                state.podium = { first: null, second: null, third: null };
+            });
+
+            showToast('Пари сформовано випадковим чином! Турнір розпочато!', 'success');
+        }
+
+        function checkAndAdvanceTournament(state) {
+            if (state.status !== 'playing') return state;
+
+            const currentRoundIdx = state.rounds.length - 1;
+            const currentRound = state.rounds[currentRoundIdx];
+            const allRoundFinished = currentRound.matches.every(m => m.status === 'finished');
+
+            if (!allRoundFinished) return state;
+
+            // Фінал завершено
+            if (currentRound.matches.length === 1) {
+                const finalMatch = currentRound.matches[0];
+                if (state.thirdPlaceMatch && state.thirdPlaceMatch.status !== 'finished') {
+                    return state;
+                }
+
+                const champion = finalMatch.winnerId === finalMatch.player1.id ? finalMatch.player1 : finalMatch.player2;
+                const runnerUp = finalMatch.winnerId === finalMatch.player1.id ? finalMatch.player2 : finalMatch.player1;
+                let thirdPlace = null;
+
+                if (state.thirdPlaceMatch && state.thirdPlaceMatch.winnerId) {
+                    thirdPlace = state.thirdPlaceMatch.winnerId === state.thirdPlaceMatch.player1.id
+                        ? state.thirdPlaceMatch.player1
+                        : state.thirdPlaceMatch.player2;
+                } else if (state.rounds.length >= 2) {
+                    const prevRound = state.rounds[state.rounds.length - 2];
+                    const losers = [];
+                    prevRound.matches.forEach(m => {
+                        if (!m.isBye && m.winnerId) {
+                            const loser = m.winnerId === m.player1.id ? m.player2 : m.player1;
+                            if (loser) losers.push(loser);
+                        }
+                    });
+                    if (losers.length > 0) thirdPlace = losers[0];
+                }
+
+                state.status = 'finished';
+                state.podium = {
+                    first: champion,
+                    second: runnerUp,
+                    third: thirdPlace
+                };
+                recordTournamentResult(state, champion, runnerUp, thirdPlace);
+                // Після турніру налаштування повертаються до початкових
+                state.settings = { gameTimeMin: 5, gamesPerMatch: 1, waitTimeSec: 15 };
+                return state;
+            }
+
+            // Перехід у наступний раунд + формування матчу за 3-тє місце після півфіналу
+            const winners = [];
+            const semiLosers = [];
+
+            currentRound.matches.forEach(m => {
+                const w = m.winnerId === m.player1?.id ? m.player1 : m.player2;
+                if (w) winners.push(w);
+                if (!m.isBye && m.player1 && m.player2) {
+                    const l = m.winnerId === m.player1.id ? m.player2 : m.player1;
+                    if (l) semiLosers.push(l);
+                }
+            });
+
+            const nextRoundIdx = currentRoundIdx + 1;
+            const nextMatchesCount = winners.length / 2;
+            const nextMatches = [];
+
+            for (let i = 0; i < nextMatchesCount; i++) {
+                nextMatches.push(
+                    createMatchObject(`r${nextRoundIdx}_m${i}`, nextRoundIdx, winners[i * 2], winners[i * 2 + 1], state.settings)
+                );
+            }
+
+            state.rounds.push({
+                roundIndex: nextRoundIdx,
+                name: getRoundName(nextMatchesCount, nextMatchesCount === 1),
+                matches: nextMatches
+            });
+
+            if (nextMatchesCount === 1 && semiLosers.length === 2) {
+                state.thirdPlaceMatch = createMatchObject('match_3rd_place', nextRoundIdx, semiLosers[0], semiLosers[1], state.settings);
+            }
+
+            return state;
+        }
+
+        async function handleSingleGameWin(matchId, winnerPlayerId, reasonText, gameNo = null) {
+            if (gameNo !== null) {
+                const k = `${matchId}_${gameNo}`;
+                if (pendingWins.has(k)) return;
+                pendingWins.add(k);
+                setTimeout(() => pendingWins.delete(k), 4000);
+            }
+            let toastMsg = '';
+            let toastType = 'success';
+
+            await mutateTournamentState((state) => {
+                const match = findMatchById(state, matchId);
+                if (!match || match.status === 'finished') return false;
+                if (gameNo !== null && match.gameNumber !== gameNo) return false;
+
+                if (winnerPlayerId === match.player1.id) {
+                    match.score1 += 1;
+                } else {
+                    match.score2 += 1;
+                }
+
+                const winsNeeded = Math.ceil(state.settings.gamesPerMatch / 2);
+
+                if (match.score1 >= winsNeeded || match.score2 >= winsNeeded) {
+                    match.status = 'finished';
+                    match.winnerId = match.score1 >= winsNeeded ? match.player1.id : match.player2.id;
+
+                    const loserId = match.winnerId === match.player1.id ? match.player2.id : match.player1.id;
+                    const loserPlayer = state.players.find(p => p.id === loserId);
+                    if (loserPlayer) loserPlayer.eliminated = true;
+
+                    checkAndAdvanceTournament(state);
+                    toastMsg = `Матч завершено! ${reasonText}`;
+                    toastType = 'success';
+                } else {
+                    const initTime = state.settings.gameTimeMin * 60;
+                    const now = nowMs();
+                    match.gameNumber += 1;
+                    const oldWhite = match.whiteId;
+                    match.whiteId = match.blackId;
+                    match.blackId = oldWhite;
+                    match.fen = new AutonomousChess().fen();
+                    match.pgnHistory = [];
+                    match.positions = [];
+                    match.whiteTime = initTime;
+                    match.blackTime = initTime;
+                    match.waitUntil = now + 5000;
+                    match.lastMoveAt = match.waitUntil;
+
+                    toastMsg = `Партію завершено (${reasonText}). Починається гра №${match.gameNumber}!`;
+                    toastType = 'info';
+                }
+            });
+
+            if (toastMsg) {
+                showToast(toastMsg, toastType);
+                // Показуємо учасникам оновлену турнірну таблицю після гри
+                setTimeout(() => openRoundSummaryModal('Після завершення партії', 'Оновлена турнірна таблиця'), 400);
+            }
+        }
+
+        function findMatchById(state, matchId) {
+            for (const r of state.rounds) {
+                const found = r.matches.find(m => m.id === matchId);
+                if (found) return found;
+            }
+            if (state.thirdPlaceMatch && state.thirdPlaceMatch.id === matchId) {
+                return state.thirdPlaceMatch;
+            }
+            return null;
+        }
+
+        function getMyActiveMatch() {
+            if (!myPlayerId) return null;
+            for (const r of tournamentState.rounds) {
+                const m = r.matches.find(m => m.status === 'active' && (m.player1?.id === myPlayerId || m.player2?.id === myPlayerId));
+                if (m) return m;
+            }
+            if (tournamentState.thirdPlaceMatch && tournamentState.thirdPlaceMatch.status === 'active') {
+                const m = tournamentState.thirdPlaceMatch;
+                if (m.player1?.id === myPlayerId || m.player2?.id === myPlayerId) return m;
+            }
+            return null;
+        }
+
+        // =========================================================================
+        // 7. ЛОГІКА ШАХОВОЇ ДОШКИ ТА ХОДІВ
+        // =========================================================================
+        function getDisplayedMatch() {
+            const myMatch = getMyActiveMatch();
+            if (myMatch) return { match: myMatch, isSpectator: false };
+            if (spectatingMatchId) {
+                const spec = findMatchById(tournamentState, spectatingMatchId);
+                if (spec) return { match: spec, isSpectator: true };
+            }
+            return null;
+        }
+
+        function renderChessBoard() {
+            const activeData = getDisplayedMatch();
+            const section = document.getElementById('active-match-section');
+
+            if (!activeData) {
+                section.classList.add('hidden');
+                updateWakeLock(false);
+                return;
+            }
+
+            section.classList.remove('hidden');
+            const { match, isSpectator } = activeData;
+            updateWakeLock(match.status === 'active' && !isSpectator);
+
+            chessInstance.load(match.fen);
+            const posK = match.id + '|' + match.gameNumber + '|' + match.fen;
+            if (posK !== lastPosKey) { selectedSquare = null; lastPosKey = posK; }
+
+            // Звук нового ходу суперника
+            if (match.pgnHistory && match.pgnHistory.length > lastMoveHistoryLength) {
+                const lastMv = match.pgnHistory[match.pgnHistory.length - 1];
+                playMoveSound(Boolean(lastMv?.captured));
+            }
+            lastMoveHistoryLength = match.pgnHistory ? match.pgnHistory.length : 0;
+
+            const amIBlack = !isSpectator && match.blackId === myPlayerId;
+            const whitePlayer = match.player1.id === match.whiteId ? match.player1 : match.player2;
+            const blackPlayer = match.player1.id === match.blackId ? match.player1 : match.player2;
+
+            const topPlayer = amIBlack ? whitePlayer : blackPlayer;
+            const bottomPlayer = amIBlack ? blackPlayer : whitePlayer;
+
+            document.getElementById('top-player-name').textContent = topPlayer.name;
+            document.getElementById('bottom-player-name').textContent = bottomPlayer.name;
+
+            document.getElementById('top-player-color-dot').className = `w-3 h-3 rounded-full shrink-0 border border-gray-500 ${amIBlack ? 'bg-white' : 'bg-black'}`;
+            document.getElementById('bottom-player-color-dot').className = `w-3 h-3 rounded-full shrink-0 border border-gray-500 ${amIBlack ? 'bg-black' : 'bg-white'}`;
+
+            const roundObj = tournamentState.rounds[match.roundIndex];
+            document.getElementById('match-stage-label').textContent =
+                match.id === 'match_3rd_place' ? 'Матч за 3-тє місце' : (roundObj ? roundObj.name : 'Матч');
+            document.getElementById('match-series-score').textContent =
+                `Рахунок: ${match.score1} : ${match.score2} (Гра ${match.gameNumber}/${tournamentState.settings.gamesPerMatch})`;
+
+            document.getElementById('btn-resign-game').classList.toggle('hidden', isSpectator || match.status !== 'active');
+            document.getElementById('btn-close-spectate').classList.toggle('hidden', !isSpectator);
+
+            const turnColor = chessInstance.turn();
+            const isMyTurn = !isSpectator && match.status === 'active' &&
+                ((turnColor === 'w' && match.whiteId === myPlayerId) || (turnColor === 'b' && match.blackId === myPlayerId));
+
+            const turnIndicator = document.getElementById('match-turn-indicator');
+            const substatus = document.getElementById('match-substatus');
+
+            if (match.status === 'finished') {
+                const winner = match.winnerId === match.player1.id ? match.player1 : match.player2;
+                turnIndicator.textContent = `Переміг: ${winner.name}`;
+                substatus.textContent = 'Матч завершено';
+            } else if (nowMs() < match.waitUntil) {
+                turnIndicator.textContent = 'Очікування старту...';
+                substatus.textContent = 'Ознайомтеся з таблицею та підготуйтеся до партії';
+            } else if (isSpectator) {
+                turnIndicator.textContent = turnColor === 'w' ? `Хід білих (${whitePlayer.name})` : `Хід чорних (${blackPlayer.name})`;
+                substatus.textContent = 'Режим перегляду партії';
+            } else if (isMyTurn) {
+                turnIndicator.textContent = chessInstance.inCheck() ? '⚠️ ШАХ! Ваш хід' : '🟢 Ваш хід';
+                substatus.textContent = 'Натисніть на свою фігуру, щоб зробити хід';
+            } else {
+                turnIndicator.textContent = '⏳ Хід суперника';
+                substatus.textContent = `Очікуємо хід: ${turnColor === 'w' ? whitePlayer.name : blackPlayer.name}`;
+            }
+
+            const boardEl = document.getElementById('chess-board');
+            boardEl.innerHTML = '';
+
+            const legalMoves = (selectedSquare && isMyTurn && nowMs() >= match.waitUntil)
+                ? chessInstance.legalMoves(selectedSquare)
+                : [];
+            const boardMatrix = chessInstance.getBoard();
+
+            const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+            const ranks = ['8', '7', '6', '5', '4', '3', '2', '1'];
+
+            const displayRanks = amIBlack ? [...ranks].reverse() : ranks;
+            const displayFiles = amIBlack ? [...files].reverse() : files;
+
+            const lastMove = match.pgnHistory && match.pgnHistory.length > 0
+                ? match.pgnHistory[match.pgnHistory.length - 1]
+                : null;
+
+            displayRanks.forEach((rankChar, rVisualIdx) => {
+                displayFiles.forEach((fileChar, fVisualIdx) => {
+                    const sqName = `${fileChar}${rankChar}`;
+                    const boardRow = 8 - parseInt(rankChar, 10);
+                    const boardCol = files.indexOf(fileChar);
+                    const piece = boardMatrix[boardRow][boardCol];
+
+                    const isLight = (boardRow + boardCol) % 2 === 0;
+                    const cell = document.createElement('div');
+                    cell.className = `square-cell relative flex items-center justify-center cursor-pointer ${isLight ? 'sq-light' : 'sq-dark'}`;
+
+                    if (lastMove && (lastMove.from === sqName || lastMove.to === sqName)) {
+                        cell.classList.add(isLight ? 'sq-last-move-light' : 'sq-last-move-dark');
+                    }
+
+                    if (piece && piece.type === 'k' && piece.color === turnColor && chessInstance.inCheck()) {
+                        cell.classList.add('sq-check');
+                    }
+
+                    // Координати на краях дошки (як на фото)
+                    if (fVisualIdx === 0) {
+                        const rankLabel = document.createElement('span');
+                        rankLabel.className = `absolute top-0.5 left-1 text-[10px] font-bold leading-none pointer-events-none ${isLight ? 'text-[#5b7a3e]' : 'text-[#DCE8D0]'}`;
+                        rankLabel.textContent = rankChar;
+                        cell.appendChild(rankLabel);
+                    }
+                    if (rVisualIdx === 7) {
+                        const fileLabel = document.createElement('span');
+                        fileLabel.className = `absolute bottom-0.5 right-1 text-[10px] font-bold leading-none pointer-events-none ${isLight ? 'text-[#5b7a3e]' : 'text-[#DCE8D0]'}`;
+                        fileLabel.textContent = fileChar;
+                        cell.appendChild(fileLabel);
+                    }
+
+                    if (piece) {
+                        cell.insertAdjacentHTML('beforeend', getPieceSVG(piece.type, piece.color));
+                    }
+
+                    const moveOption = legalMoves.find(m => m.to === sqName);
+                    if (moveOption) {
+                        const marker = document.createElement('div');
+                        marker.className = `absolute ${piece ? 'legal-capture' : 'legal-dot'}`;
+                        cell.classList.add('sq-target');
+                        if (piece) cell.classList.add('sq-target-cap');
+                        cell.appendChild(marker);
+                    }
+
+                    cell.addEventListener('click', () => onSquareClicked(sqName, piece, isMyTurn, match));
+                    boardEl.appendChild(cell);
+                });
+            });
+
+            // Історія ходів
+            const historyBox = document.getElementById('move-history-box');
+            if (!match.pgnHistory || match.pgnHistory.length === 0) {
+                historyBox.innerHTML = '<span class="text-gray-500 italic">Партія розпочалася...</span>';
+            } else {
+                let html = '';
+                for (let i = 0; i < match.pgnHistory.length; i += 2) {
+                    const num = Math.floor(i / 2) + 1;
+                    const m1 = match.pgnHistory[i]?.san || '';
+                    const m2 = match.pgnHistory[i + 1]?.san || '';
+                    html += `<div class="flex gap-3 px-1.5 py-0.5 rounded hover:bg-white/5"><span class="text-gray-500 w-6">${num}.</span><span class="text-white w-16">${m1}</span><span class="text-gray-300">${m2}</span></div>`;
+                }
+                historyBox.innerHTML = html;
+                historyBox.scrollTop = historyBox.scrollHeight;
+            }
+
+            updateClocksUI();
+            triggerBotMoveIfNeeded(match);
+        }
+
+        function onSquareClicked(sqName, piece, isMyTurn, match) {
+            // Завжди беремо актуальний стан на момент кліку
+            const cur = getDisplayedMatch();
+            if (cur) match = cur.match;
+            if (match.status !== 'active') return;
+            const g = new AutonomousChess(match.fen);
+            const turn = g.turn();
+            const spectator = cur ? cur.isSpectator : false;
+            if (spectator) { showToast('Ви дивитеся партію як глядач', 'info'); return; }
+            isMyTurn = (turn === 'w' && match.whiteId === myPlayerId) || (turn === 'b' && match.blackId === myPlayerId);
+            if (nowMs() < match.waitUntil) {
+                showToast('Зачекайте завершення таймера підготовки!', 'warn');
+                return;
+            }
+            if (!isMyTurn) { showToast('Зараз хід суперника', 'info'); return; }
+
+            const myColor = turn;
+            const rc = g.sqToCoords(sqName);
+            piece = g.getBoard()[rc.row][rc.col];
+
+            if (piece && piece.color === myColor) {
+                if (selectedSquare === sqName) { selectedSquare = null; renderChessBoard(); return; }
+                if (g.legalMoves(sqName).length === 0) {
+                    selectedSquare = null;
+                    showToast(g.inCheck() ? 'Ваш король під шахом — зробіть хід, який його захистить' : 'Ця фігура зараз не може ходити (заблокована або захищає короля)', 'warn');
+                    renderChessBoard();
+                    return;
+                }
+                selectedSquare = sqName;
+                renderChessBoard();
+                return;
+            }
+
+            if (selectedSquare) {
+                const legalMoves = g.legalMoves(selectedSquare);
+                const chosenMove = legalMoves.find(m => m.to === sqName);
+
+                if (chosenMove) {
+                    if (chosenMove.flags.includes('p')) {
+                        openPromotionModal(selectedSquare, sqName, myColor, match.id);
+                        return;
+                    }
+                    executeChessMove(match.id, selectedSquare, sqName, 'q');
+                } else {
+                    selectedSquare = null;
+                    renderChessBoard();
+                }
+            }
+        }
+
+
+        function openPromotionModal(fromSq, toSq, color, matchId) {
+            const container = document.getElementById('promotion-choices');
+            container.innerHTML = '';
+            ['q', 'r', 'b', 'n'].forEach(pType => {
+                const btn = document.createElement('button');
+                btn.className = 'p-2 bg-[#2a3128] hover:bg-[#739552] rounded-xl flex items-center justify-center transition cursor-pointer';
+                btn.innerHTML = getPieceSVG(pType, color);
+                btn.onclick = () => {
+                    document.getElementById('modal-promotion').classList.add('hidden');
+                    executeChessMove(matchId, fromSq, toSq, pType);
+                };
+                container.appendChild(btn);
+            });
+            document.getElementById('modal-promotion').classList.remove('hidden');
+        }
+
+        function applyMoveToMatch(match, from, to, promotion, now) {
+            const tempChess = new AutonomousChess(match.fen);
+            const turnBefore = tempChess.turn();
+            const mv = tempChess.move({ from, to, promotion });
+            if (!mv) return null;
+            const elapsed = Math.max(0, (now - match.lastMoveAt) / 1000);
+            if (turnBefore === 'w') match.whiteTime = Math.max(0, match.whiteTime - elapsed);
+            else match.blackTime = Math.max(0, match.blackTime - elapsed);
+            match.lastMoveAt = now;
+            match.fen = tempChess.fen();
+            match.pgnHistory = match.pgnHistory || [];
+            match.pgnHistory.push({ from: mv.from, to: mv.to, san: mv.san, captured: mv.captured || null });
+            match.positions = match.positions || [];
+            match.positions.push(match.fen.split(' ').slice(0, 4).join(' '));
+            return { tempChess, turnBefore };
+        }
+
+        async function executeChessMove(matchId, from, to, promotion = 'q') {
+            let outcome = null;
+            let applied = false;
+            selectedSquare = null;
+
+            // Миттєве відображення ходу (не чекаємо відповіді сервера)
+            let backup = null, optimisticFen = null;
+            const local = findMatchById(tournamentState, matchId);
+            if (syncMode === 'FIREBASE' && local && local.status === 'active') {
+                backup = JSON.parse(JSON.stringify(local));
+                if (applyMoveToMatch(local, from, to, promotion, nowMs())) {
+                    optimisticFen = local.fen;
+                    renderChessBoard();
+                } else {
+                    backup = null;
+                }
+            }
+
+            await mutateTournamentState((state) => {
+                applied = false; outcome = null;
+                const match = findMatchById(state, matchId);
+                if (!match || match.status !== 'active') return false;
+                const now = nowMs();
+                const res = applyMoveToMatch(match, from, to, promotion, now);
+                if (!res) return false;
+                applied = true;
+                const { tempChess, turnBefore } = res;
+                const pos = match.positions;
+                const threefold = pos.filter(k => k === pos[pos.length - 1]).length >= 3;
+
+                if (tempChess.inCheckmate()) {
+                    outcome = { type: 'win', winnerId: turnBefore === 'w' ? match.whiteId : match.blackId, gameNo: match.gameNumber };
+                } else if (tempChess.isDraw() || threefold) {
+                    const initTime = state.settings.gameTimeMin * 60;
+                    const oldW = match.whiteId;
+                    match.whiteId = match.blackId;
+                    match.blackId = oldW;
+                    match.fen = new AutonomousChess().fen();
+                    match.pgnHistory = [];
+                    match.positions = [];
+                    match.whiteTime = initTime;
+                    match.blackTime = initTime;
+                    match.waitUntil = now + 5000;
+                    match.lastMoveAt = match.waitUntil;
+                    outcome = { type: 'draw' };
+                }
+            });
+
+            // Якщо сервер хід не прийняв — відкочуємо миттєве відображення
+            if (backup && !applied) {
+                const cur = findMatchById(tournamentState, matchId);
+                if (cur && cur.fen === optimisticFen) {
+                    Object.keys(backup).forEach(k => { cur[k] = backup[k]; });
+                    renderChessBoard();
+                }
+            }
+
+            if (outcome?.type === 'win') {
+                handleSingleGameWin(matchId, outcome.winnerId, 'Шах і мат!', outcome.gameNo);
+            } else if (outcome?.type === 'draw') {
+                showToast('Нічия! Призначається перегравання зі зміною кольору фігур.', 'info');
+            }
+        }
+
+
+        function triggerBotMoveIfNeeded(match) {
+            if (match.status !== 'active') return;
+            const now = nowMs();
+            if (now < match.waitUntil) return;
+
+            const tempChess = new AutonomousChess(match.fen);
+            const turn = tempChess.turn();
+            const activePlayerId = turn === 'w' ? match.whiteId : match.blackId;
+            const activePlayer = tournamentState.players.find(p => p.id === activePlayerId);
+
+            if (!activePlayer || !activePlayer.isBot) return;
+            if (userRole !== 'admin' && match.whiteId !== myPlayerId && match.blackId !== myPlayerId) return;
+
+            const moveKey = `${match.id}_${match.gameNumber}_${match.pgnHistory.length}`;
+            if (lastBotMoveKey === moveKey) return;
+            lastBotMoveKey = moveKey;
+
+            clearTimeout(botMoveTimeout);
+            botMoveTimeout = setTimeout(() => {
+                const currentMatch = findMatchById(tournamentState, match.id);
+                if (!currentMatch || currentMatch.status !== 'active') return;
+                const c = new AutonomousChess(currentMatch.fen);
+                const moves = c.legalMoves();
+                if (moves.length === 0) return;
+
+                const captures = moves.filter(m => m.captured);
+                const chosen = captures.length > 0
+                    ? captures[Math.floor(Math.random() * captures.length)]
+                    : moves[Math.floor(Math.random() * moves.length)];
+
+                executeChessMove(currentMatch.id, chosen.from, chosen.to, 'q');
+            }, 850);
+        }
+
+        // =========================================================================
+        // 8. ЖИВИЙ ТАЙМЕР ПАРТІЇ ТА ОЧІКУВАННЯ
+        // =========================================================================
+        function updateClocksUI() {
+            const activeData = getDisplayedMatch();
+            if (!activeData) return;
+            const { match, isSpectator } = activeData;
+
+            const now = nowMs();
+            const waitBanner = document.getElementById('match-wait-banner');
+            const waitCountdown = document.getElementById('match-wait-countdown');
+
+            if (match.status === 'active' && now < match.waitUntil) {
+                waitBanner.classList.remove('hidden');
+                waitCountdown.textContent = `${Math.ceil((match.waitUntil - now) / 1000)} с`;
+            } else {
+                waitBanner.classList.add('hidden');
+            }
+
+            let wTime = match.whiteTime;
+            let bTime = match.blackTime;
+
+            if (match.status === 'active' && now >= match.waitUntil) {
+                const tempChess = new AutonomousChess(match.fen);
+                const elapsed = (now - match.lastMoveAt) / 1000;
+                if (tempChess.turn() === 'w') {
+                    wTime = Math.max(0, wTime - elapsed);
+                    if (wTime <= 0 && (!isSpectator || userRole === 'admin')) {
+                        handleSingleGameWin(match.id, match.blackId, 'Час білих вичерпано!', match.gameNumber);
+                        return;
+                    }
+                } else {
+                    bTime = Math.max(0, bTime - elapsed);
+                    if (bTime <= 0 && (!isSpectator || userRole === 'admin')) {
+                        handleSingleGameWin(match.id, match.whiteId, 'Час чорних вичерпано!', match.gameNumber);
+                        return;
+                    }
+                }
+            }
+
+            const amIBlack = !isSpectator && match.blackId === myPlayerId;
+            const topTime = amIBlack ? wTime : bTime;
+            const bottomTime = amIBlack ? bTime : wTime;
+
+            document.getElementById('top-player-clock').textContent = formatClock(topTime);
+            document.getElementById('bottom-player-clock').textContent = formatClock(bottomTime);
+        }
+
+        // =========================================================================
+        // 9. ОНОВЛЕННЯ ІНТЕРФЕЙСУ ТУРНІРНОЇ ТАБЛИЦІ ТА МОДАЛЬНОГО ВІКНА ПЕРЕД/ПІСЛЯ ГРИ
+        // =========================================================================
+        function updateLandingStatus() {
+            const count = tournamentState.players.length;
+            const statusMap = {
+                lobby: `У лобі зараз: ${count} з 10 гравців`,
+                playing: `Турнір триває (${count} учасників)`,
+                finished: `Турнір завершено (${count} учасників)`
+            };
+            const el = document.getElementById('landing-players-count');
+            if (el) el.textContent = statusMap[tournamentState.status] || `Учасників: ${count}/10`;
+        }
+
+        function openRoundSummaryModal(badgeText, titleText) {
+            const modal = document.getElementById('modal-round-summary');
+            const body = document.getElementById('modal-summary-body');
+            if (!modal || !body) return;
+
+            document.getElementById('modal-summary-badge').textContent = badgeText;
+            document.getElementById('modal-summary-title').textContent = titleText;
+
+            let html = '';
+            if (tournamentState.rounds.length === 0) {
+                html = '<p class="text-sm text-gray-400">Пари ще не сформовані.</p>';
+            } else {
+                tournamentState.rounds.forEach(round => {
+                    html += `<div class="bg-[#141713] rounded-2xl p-3.5 border border-[#2b3229]">`;
+                    html += `<div class="text-xs font-bold uppercase tracking-wider text-[#a3c285] mb-2.5">${round.name}</div>`;
+                    html += `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">`;
+                    round.matches.forEach(m => {
+                        html += buildMatchCardHTML(m, true);
+                    });
+                    html += `</div></div>`;
+                });
+
+                if (tournamentState.thirdPlaceMatch) {
+                    html += `<div class="bg-[#141713] rounded-2xl p-3.5 border border-amber-600/40">`;
+                    html += `<div class="text-xs font-bold uppercase tracking-wider text-amber-400 mb-2.5">🥉 Матч за 3-тє місце</div>`;
+                    html += buildMatchCardHTML(tournamentState.thirdPlaceMatch, true);
+                    html += `</div>`;
+                }
+            }
+
+            body.innerHTML = html;
+            modal.classList.remove('hidden');
+        }
+
+        function onStateUpdated() {
+            updateLandingStatus();
+            renderChampionBanner();
+            renderRosterChips();
+
+            if (!userRole) return;
+            ensureAdminPlayer();
+            if (userRole === 'player' && myPlayerId && nowMs() - sessionEnteredAt > 5000 &&
+                !tournamentState.players.some(p => p.id === myPlayerId)) {
+                document.getElementById('btn-logout').click();
+                showToast('Вас видалено з турніру або турнір скинуто.', 'warn');
+                return;
+            }
+
+            document.getElementById('info-game-time').textContent = `${tournamentState.settings.gameTimeMin} хв`;
+            document.getElementById('info-games-count').textContent =
+                tournamentState.settings.gamesPerMatch === 1 ? '1 гра' : `З ${tournamentState.settings.gamesPerMatch} ігор`;
+            document.getElementById('info-wait-time').textContent = `${tournamentState.settings.waitTimeSec} сек`;
+
+            if (userRole === 'admin') {
+                const cfgTime = document.getElementById('cfg-game-time');
+                const cfgGames = document.getElementById('cfg-games-count');
+                const cfgWait = document.getElementById('cfg-wait-time');
+                if (document.activeElement !== cfgTime) cfgTime.value = tournamentState.settings.gameTimeMin;
+                if (document.activeElement !== cfgGames) cfgGames.value = tournamentState.settings.gamesPerMatch;
+                if (document.activeElement !== cfgWait) cfgWait.value = tournamentState.settings.waitTimeSec;
+                renderRosterAdminList();
+
+                const stateLabels = {
+                    lobby: 'Очікування учасників',
+                    playing: 'Турнір активний',
+                    finished: 'Турнір завершено'
+                };
+                document.getElementById('admin-tournament-state-badge').textContent = stateLabels[tournamentState.status];
+            }
+
+            renderPlayersList();
+            renderTournamentBracket();
+            renderPodium();
+            renderChessBoard();
+
+            // Автоматичний показ сформованої турнірної таблиці перед початком нового раунду
+            if (tournamentState.status === 'playing' && tournamentState.rounds.length > 0) {
+                const latestRound = tournamentState.rounds[tournamentState.rounds.length - 1];
+                const sig = `${tournamentState.status}_r${latestRound.roundIndex}_m${latestRound.matches.length}`;
+                if (lastAnnouncedMatchSignature !== sig) {
+                    lastAnnouncedMatchSignature = sig;
+                    if (latestRound.matches.every(m => m.isBye || !(m.pgnHistory || []).length)) openRoundSummaryModal('Сформовано пари', `${latestRound.name} — Турнірна таблиця`);
+                }
+            }
+        }
+
+        function renderPlayersList() {
+            const container = document.getElementById('players-list-container');
+            const badge = document.getElementById('players-counter-badge');
+            const players = tournamentState.players;
+
+            badge.textContent = `${players.length} / 10`;
+            container.innerHTML = '';
+
+            if (players.length === 0) {
+                container.innerHTML = '<div class="text-xs text-gray-500 text-center py-6">Ще немає зареєстрованих гравців</div>';
+                return;
+            }
+
+            players.forEach((p, idx) => {
+                const isMe = p.id === myPlayerId;
+                const devIcon = p.isBot ? '🤖' : (p.deviceIcon || '💻');
+                const row = document.createElement('div');
+                row.className = `flex items-center justify-between px-3 py-2.5 rounded-xl border ${
+                    isMe ? 'bg-[#739552]/20 border-[#739552]' : 'bg-[#141713] border-[#282e26]'
+                }`;
+
+                row.innerHTML = `
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="w-6 h-6 rounded-lg bg-[#232921] text-gray-300 text-xs font-bold flex items-center justify-center shrink-0">
+                            ${idx + 1}
+                        </span>
+                        <span class="text-sm shrink-0" title="${p.deviceLabel || 'Пристрій'}">${devIcon}</span>
+                        <span class="font-semibold text-sm text-white truncate">${p.name}</span>
+                        ${isMe ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/80 text-emerald-300 shrink-0">ВИ</span>' : ''}
+                    </div>
+                    <div class="shrink-0 flex items-center gap-2">
+                        <span class="text-xs font-medium ${p.eliminated ? 'text-red-400' : 'text-emerald-400'}">
+                            ${p.eliminated ? 'Вибув' : 'У грі'}
+                        </span>
+                        ${userRole === 'admin' && tournamentState.status === 'lobby' && p.id !== myPlayerId ? `
+                            <button data-remove-id="${p.id}" class="btn-remove-player text-xs text-gray-500 hover:text-red-400 px-1.5 py-0.5 cursor-pointer" title="Видалити">✕</button>
+                        ` : ''}
+                    </div>
+                `;
+                container.appendChild(row);
+            });
+
+            container.querySelectorAll('.btn-remove-player').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const idToRemove = e.currentTarget.getAttribute('data-remove-id');
+                    mutateTournamentState((state) => {
+                        state.players = state.players.filter(pl => pl.id !== idToRemove);
+                    });
+                });
+            });
+        }
+
+        function renderTournamentBracket() {
+            const container = document.getElementById('bracket-container');
+            const statusText = document.getElementById('bracket-status-text');
+
+            if (tournamentState.status === 'lobby' || tournamentState.rounds.length === 0) {
+                statusText.textContent = 'Очікування формування пар';
+                container.innerHTML = `
+                    <div class="text-center py-10 px-4 bg-[#141713] rounded-xl border border-dashed border-[#343d32]">
+                        <div class="text-3xl mb-2">♟️</div>
+                        <p class="text-gray-300 font-medium text-sm">Турнірну сітку ще не сформовано</p>
+                        <p class="text-gray-500 text-xs mt-1">
+                            Коли учасники введуть свої імена (від 2 до 10 осіб), адміністратор запустить випадкове жеребкування пар.
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+
+            statusText.textContent = tournamentState.status === 'finished'
+                ? 'Усі партії завершено'
+                : 'Оновлюється в реальному часі';
+
+            container.innerHTML = '';
+
+            tournamentState.rounds.forEach(round => {
+                const roundBlock = document.createElement('div');
+                roundBlock.className = 'bg-[#141713] rounded-2xl p-4 border border-[#2b3229]';
+
+                let matchesHtml = `<div class="text-xs font-bold uppercase tracking-wider text-[#a3c285] mb-3">${round.name}</div>`;
+                matchesHtml += `<div class="grid grid-cols-1 md:grid-cols-2 gap-3">`;
+
+                round.matches.forEach(m => {
+                    matchesHtml += buildMatchCardHTML(m, false);
+                });
+
+                matchesHtml += `</div>`;
+                roundBlock.innerHTML = matchesHtml;
+                container.appendChild(roundBlock);
+            });
+
+            if (tournamentState.thirdPlaceMatch) {
+                const thirdBlock = document.createElement('div');
+                thirdBlock.className = 'bg-[#141713] rounded-2xl p-4 border border-amber-600/40';
+                thirdBlock.innerHTML = `
+                    <div class="text-xs font-bold uppercase tracking-wider text-amber-400 mb-3">🥉 Матч за 3-тє місце</div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        ${buildMatchCardHTML(tournamentState.thirdPlaceMatch, false)}
+                    </div>
+                `;
+                container.appendChild(thirdBlock);
+            }
+
+            container.querySelectorAll('.btn-spectate-match').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    spectatingMatchId = e.currentTarget.getAttribute('data-match-id');
+                    renderChessBoard();
+                    document.getElementById('active-match-section').scrollIntoView({ behavior: 'smooth' });
+                });
+            });
+        }
+
+        function buildMatchCardHTML(m, compact = false) {
+            const p1Name = m.player1 ? m.player1.name : '—';
+            const p2Name = m.player2 ? m.player2.name : 'Автопрохід (Bye)';
+            const isFinished = m.status === 'finished';
+            const p1Won = isFinished && m.winnerId === m.player1?.id;
+            const p2Won = isFinished && m.winnerId === m.player2?.id;
+            const isMyMatch = myPlayerId && (m.player1?.id === myPlayerId || m.player2?.id === myPlayerId);
+
+            return `
+                <div class="bg-[#1b201a] rounded-xl p-3 border ${isMyMatch ? 'border-[#739552]' : 'border-[#2d342b]'} flex flex-col justify-between gap-2">
+                    <div class="space-y-1.5">
+                        <div class="flex items-center justify-between text-xs sm:text-sm px-2 py-1 rounded ${p1Won ? 'bg-emerald-950/75 text-emerald-300 font-bold' : 'text-gray-200'}">
+                            <span class="truncate">${p1Name} ${p1Won ? '🏆' : ''}</span>
+                            <span class="font-mono font-bold ml-2">${m.isBye ? '—' : m.score1}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-xs sm:text-sm px-2 py-1 rounded ${p2Won ? 'bg-emerald-950/75 text-emerald-300 font-bold' : (m.isBye ? 'text-gray-500 italic' : 'text-gray-200')}">
+                            <span class="truncate">${p2Name} ${p2Won ? '🏆' : ''}</span>
+                            <span class="font-mono font-bold ml-2">${m.isBye ? '—' : m.score2}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between pt-1.5 border-t border-[#2b3229] text-[11px]">
+                        <span class="${isFinished ? 'text-gray-400' : 'text-amber-400 font-semibold'}">
+                            ${m.isBye ? 'Проходить у наступний раунд' : (isFinished ? 'Завершено' : '● Іде гра')}
+                        </span>
+                        ${(!m.isBye && !compact) ? `
+                            <button data-match-id="${m.id}" class="btn-spectate-match text-[#a3c285] hover:text-white font-semibold underline cursor-pointer">
+                                ${isMyMatch && !isFinished ? 'Відкрити дошку' : 'Дивитися'}
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPodium() {
+            const podiumSec = document.getElementById('podium-section');
+            if (tournamentState.status !== 'finished') {
+                podiumSec.classList.add('hidden');
+                return;
+            }
+            podiumSec.classList.remove('hidden');
+            document.getElementById('podium-1st').textContent = tournamentState.podium.first?.name || '—';
+            document.getElementById('podium-2nd').textContent = tournamentState.podium.second?.name || '—';
+            document.getElementById('podium-3rd').textContent = tournamentState.podium.third?.name || 'Не визначено (менше 3 гравців)';
+        }
+
+        // =========================================================================
+        // 10. ПОДІЇ НАВІГАЦІЇ, ВХОДУ, QR-КОДУ ТА АДМІНІСТРУВАННЯ
+        // =========================================================================
+        function enterDashboard(role, playerObj = null) {
+            userRole = role;
+            myPlayerId = playerObj ? playerObj.id : null;
+            sessionEnteredAt = nowMs();
+            saveSession();
+
+            document.getElementById('view-landing').classList.add('hidden');
+            document.getElementById('app-header').classList.remove('hidden');
+            document.getElementById('view-dashboard').classList.remove('hidden');
+
+            const adminPanel = document.getElementById('admin-panel');
+            const roleBadge = document.getElementById('header-role-badge');
+            const userNameEl = document.getElementById('header-user-name');
+            const userDevEl = document.getElementById('header-user-device');
+            const devInfo = detectDeviceInfo();
+
+            if (role === 'admin') {
+                adminPanel.classList.remove('hidden');
+                roleBadge.textContent = 'Режим Адміністратора • Повне керування';
+                userNameEl.textContent = playerObj ? playerObj.name : ADMIN_NAME;
+                userDevEl.textContent = devInfo.icon;
+            } else {
+                adminPanel.classList.add('hidden');
+                roleBadge.textContent = 'Режим Гравця • Гра та турнірна таблиця';
+                userNameEl.textContent = playerObj.name;
+                userDevEl.textContent = playerObj.deviceIcon || devInfo.icon;
+            }
+
+            onStateUpdated();
+        }
+
+        function openShareModal() {
+            const url = window.location.href.split('#')[0];
+            document.getElementById('share-url-input').value = url;
+            document.getElementById('qr-svg-container').innerHTML = makeQR(url);
+            const isLocalFile = window.location.protocol === 'file:' || window.location.hostname === 'localhost';
+            document.getElementById('share-local-hint').classList.toggle('hidden', !isLocalFile);
+            document.getElementById('modal-share').classList.remove('hidden');
+        }
+
+        // QR / Поділитися
+                document.getElementById('btn-open-share').addEventListener('click', openShareModal);
+        document.getElementById('btn-close-share').addEventListener('click', () => {
+            document.getElementById('modal-share').classList.add('hidden');
+        });
+        document.getElementById('btn-copy-share-url').addEventListener('click', () => {
+            const inp = document.getElementById('share-url-input');
+            inp.select();
+            try {
+                document.execCommand('copy');
+                showToast('Посилання скопійовано в буфер обміну!', 'success');
+            } catch (_) {
+                showToast('Скопіюйте посилання вручну з поля вище.', 'info');
+            }
+        });
+
+        // Модальне вікно турнірної таблиці
+        document.getElementById('btn-show-bracket-modal').addEventListener('click', () => {
+            openRoundSummaryModal('Турнірна сітка', 'Поточні пари та результати');
+        });
+        document.getElementById('btn-close-summary-modal').addEventListener('click', () => {
+            document.getElementById('modal-round-summary').classList.add('hidden');
+        });
+        document.getElementById('btn-confirm-summary-modal').addEventListener('click', () => {
+            document.getElementById('modal-round-summary').classList.add('hidden');
+        });
+
+        // ВХІД: вибір гравця зі списку
+        function updateLoginFields() {
+            const v = document.getElementById('login-select').value;
+            const pin = (window.APP_CONFIG || {}).adminPin;
+            document.getElementById('login-guest').classList.toggle('hidden', v !== '__guest__');
+            document.getElementById('login-pin').classList.toggle('hidden', !(v === ADMIN_NAME && pin));
+        }
+        document.getElementById('login-select').addEventListener('change', updateLoginFields);
+        document.getElementById('form-login').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const sel = document.getElementById('login-select').value;
+            if (!sel) { showToast('Оберіть гравця', 'warn'); return; }
+            const isGuest = sel === '__guest__';
+            const name = isGuest ? cleanName(document.getElementById('login-guest').value) : sel;
+            if (!name) { showToast("Введіть ваше ім'я", 'warn'); return; }
+            const isAdmin = !isGuest && name === ADMIN_NAME;
+            const pin = (window.APP_CONFIG || {}).adminPin;
+            if (isAdmin && pin && document.getElementById('login-pin').value !== String(pin)) {
+                showToast('Невірний PIN адміністратора', 'error');
+                return;
+            }
+            const devInfo = detectDeviceInfo();
+            const myDeviceId = getDeviceId();
+            let joinedPlayer = null;
+            let errorMsg = '';
+            await mutateTournamentState((state) => {
+                joinedPlayer = null; errorMsg = '';
+                const roster = (state.roster && state.roster.length) ? state.roster : DEFAULT_ROSTER;
+                if (isGuest && roster.some(n => n.toLowerCase() === name.toLowerCase())) {
+                    errorMsg = "Таке ім'я вже є у списку. Оберіть себе зі списку.";
+                    return false;
+                }
+                const existing = state.players.find(p => p.name.toLowerCase() === name.toLowerCase());
+                if (existing) {
+                    existing.deviceId = myDeviceId;
+                    existing.deviceIcon = devInfo.icon;
+                    existing.deviceLabel = devInfo.label;
+                    existing.lastSeen = nowMs();
+                    if (isAdmin) existing.isAdmin = true;
+                    joinedPlayer = existing;
+                    return;
+                }
+                if (state.status !== 'lobby') {
+                    if (isAdmin) return false; // адміністратор входить без участі в партіях
+                    errorMsg = 'Турнір уже розпочався! Нові гравці зможуть увійти після скидання турніру.';
+                    return false;
+                }
+                if (state.players.length >= 10) { errorMsg = 'Досягнуто ліміт учасників (10 осіб)!'; return false; }
+                const np = {
+                    id: generateId('plr'), deviceId: myDeviceId, name, isAdmin, isGuest,
+                    deviceIcon: devInfo.icon, deviceLabel: devInfo.label, isBot: false,
+                    eliminated: false, joinedAt: nowMs(), lastSeen: nowMs()
+                };
+                state.players.push(np);
+                joinedPlayer = np;
+            });
+            if (errorMsg) { showToast(errorMsg, 'error'); return; }
+            if (!joinedPlayer && !isAdmin) return;
+            if (joinedPlayer && !tournamentState.players.some(p => p.id === joinedPlayer.id)) {
+                tournamentState = { ...tournamentState, players: [...tournamentState.players, joinedPlayer] };
+            }
+            document.getElementById('login-pin').value = '';
+            enterDashboard(isAdmin ? 'admin' : 'player', joinedPlayer);
+            showToast(`Вітаємо в турнірі, ${name}!`, 'success');
+        });
+
+        // Вихід на стартовий екран
+        document.getElementById('btn-logout').addEventListener('click', () => {
+            userRole = null;
+            myPlayerId = null;
+            spectatingMatchId = null;
+            saveSession();
+            document.getElementById('view-dashboard').classList.add('hidden');
+            document.getElementById('app-header').classList.add('hidden');
+            document.getElementById('view-landing').classList.remove('hidden');
+            updateLandingStatus();
+        });
+
+        // Кнопки адміністратора
+        document.getElementById('btn-save-settings').addEventListener('click', () => {
+            const gameTimeMin = Math.min(60, Math.max(1, parseInt(document.getElementById('cfg-game-time').value, 10) || 5));
+            const gamesPerMatch = parseInt(document.getElementById('cfg-games-count').value, 10) || 1;
+            const waitTimeSec = Math.min(300, Math.max(5, parseInt(document.getElementById('cfg-wait-time').value, 10) || 15));
+
+            mutateTournamentState((state) => {
+                state.settings = { gameTimeMin, gamesPerMatch, waitTimeSec };
+            });
+            showToast('Налаштування турніру збережено!', 'success');
+        });
+
+        const botNamesPool = [
+            'Василь Смислов', 'Гаррі Каспаров', 'Анатолій Карпов', 'Михайло Таль',
+            'Магнус Карлсен', 'Боббі Фішер', 'Хосе Капабланка', 'Олександр Алехін',
+            'Пауль Керес', 'Руслан Пономарьов'
+        ];
+
+        document.getElementById('btn-add-roster').addEventListener('click', async () => {
+            const inp = document.getElementById('new-player-name');
+            const name = cleanName(inp.value);
+            if (!name) return;
+            let problem = '';
+            await mutateTournamentState((state) => {
+                problem = '';
+                const base = (state.roster && state.roster.length) ? [...state.roster] : [...DEFAULT_ROSTER];
+                if (base.some(n => n.toLowerCase() === name.toLowerCase())) { problem = 'Такий гравець уже є'; return false; }
+                if (base.length >= 12) { problem = 'У списку може бути не більше 12 гравців'; return false; }
+                state.roster = [...base, name];
+            });
+            if (problem) { showToast(problem, 'warn'); return; }
+            inp.value = '';
+            showToast(`Гравця додано: ${name}`, 'success');
+        });
+        document.getElementById('roster-admin-list').addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-roster-remove]');
+            if (!btn) return;
+            const rm = btn.getAttribute('data-roster-remove');
+            mutateTournamentState((state) => {
+                const base = (state.roster && state.roster.length) ? [...state.roster] : [...DEFAULT_ROSTER];
+                state.roster = base.filter(n => n !== rm);
+            });
+            showToast('Гравець видалений зі списку', 'info');
+        });
+
+        document.getElementById('btn-add-bot').addEventListener('click', () => {
+            if (tournamentState.status !== 'lobby') {
+                showToast('Додавати гравців можна лише до початку турніру!', 'warn');
+                return;
+            }
+            if (tournamentState.players.length >= 10) {
+                showToast('Уже набрано максимум 10 учасників!', 'warn');
+                return;
+            }
+
+            let addedName = '';
+            mutateTournamentState((state) => {
+                if (state.status !== 'lobby' || state.players.length >= 10) return false;
+                const usedNames = new Set(state.players.map(p => p.name));
+                const available = botNamesPool.filter(n => !usedNames.has(n));
+                addedName = available.length > 0 ? available[0] : `Шахіст #${state.players.length + 1}`;
+
+                state.players.push({
+                    id: generateId('bot'),
+                    name: addedName,
+                    deviceIcon: '🤖',
+                    deviceLabel: 'Бот',
+                    isBot: true,
+                    eliminated: false,
+                    joinedAt: nowMs(),
+                    lastSeen: nowMs()
+                });
+            });
+
+            if (addedName) showToast(`Додано учасника: ${addedName}`, 'info');
+        });
+
+        document.getElementById('btn-start-tournament').addEventListener('click', () => {
+            if (tournamentState.status === 'playing') {
+                showToast('Турнір уже запущено! Натисніть «Скинути турнір», щоб почати заново.', 'warn');
+                return;
+            }
+            startOlympicTournament();
+        });
+
+        document.getElementById('btn-reset-tournament').addEventListener('click', () => {
+            spectatingMatchId = null;
+            lastAnnouncedMatchSignature = '';
+            mutateTournamentState((state) => {
+                const fresh = createDefaultTournamentState();
+                fresh.settings = { ...state.settings };
+                fresh.roster = state.roster || [];
+                fresh.stats = state.stats || {};
+                fresh.history = state.history || [];
+                fresh.lastChampion = state.lastChampion || null;
+                fresh.players = (state.players || []).map(p => ({ ...p, eliminated: false }));
+                Object.assign(state, fresh);
+            });
+            showToast('Турнір повністю скинуто до початкового стану.', 'info');
+        });
+
+        // Налаштування зовнішнього Firebase (для GitHub Pages)
+        document.getElementById('btn-toggle-firebase-cfg').addEventListener('click', () => {
+            document.getElementById('external-firebase-box').classList.toggle('hidden');
+        });
+        document.getElementById('btn-apply-custom-fb').addEventListener('click', () => {
+            const raw = document.getElementById('input-custom-fb-config').value.trim();
+            try {
+                const parsed = JSON.parse(raw);
+                if (!parsed.apiKey || !parsed.projectId) throw new Error('Неповний конфіг');
+                localStorage.setItem(CUSTOM_FB_KEY, JSON.stringify(parsed));
+                firebaseConfig = parsed;
+                initHybridSync();
+                showToast('Конфігурацію Firebase підключено!', 'success');
+            } catch (_) {
+                showToast('Перевірте правильність JSON-обʼєкта Firebase!', 'error');
+            }
+        });
+
+        // Кнопки матчу
+        document.getElementById('btn-resign-game').addEventListener('click', () => {
+            const myMatch = getMyActiveMatch();
+            if (!myMatch || !myPlayerId) return;
+            const winnerId = myMatch.player1.id === myPlayerId ? myMatch.player2.id : myMatch.player1.id;
+            handleSingleGameWin(myMatch.id, winnerId, 'Суперник здався', myMatch.gameNumber);
+        });
+
+        document.getElementById('btn-close-spectate').addEventListener('click', () => {
+            spectatingMatchId = null;
+            renderChessBoard();
+        });
+
+        // =========================================================================
+        // 11. МИТТЄВИЙ СТАРТ ІНТЕРФЕЙСУ ТА ФОНОВА СИНХРОНІЗАЦІЯ
+        // =========================================================================
+        updateSyncBadge();
+        updateLandingStatus();
+        setInterval(updateClocksUI, 500);
+        document.getElementById('btn-open-stats').addEventListener('click', openStatsModal);
+        document.getElementById('btn-close-stats').addEventListener('click', () => document.getElementById('modal-stats').classList.add('hidden'));
+        renderRosterChips();
+        initTheme();
+        initI18n();
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') renderChessBoard(); });
+        window.addEventListener('online', updateSyncBadge);
+        window.addEventListener('offline', updateSyncBadge);
+        initHybridSync().then(restoreSession);
+        if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+            navigator.serviceWorker.register('./sw.js').catch(() => {});
+        }
+    </script>
+</body>
+</html>
